@@ -15,6 +15,7 @@ function isTerminal(status: string): boolean {
 
 export default function Batches() {
   const [filter, setFilter] = useState('');
+  const [nameFilter, setNameFilter] = useState('');
   const [offset, setOffset] = useState(0);
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -22,6 +23,7 @@ export default function Batches() {
   const { readOnly } = useSettings();
   const { data, isLoading, error } = useBatches({
     status: filter || undefined,
+    name: nameFilter || undefined,
     limit: PAGE_SIZE,
     offset,
     sort: sortOrder,
@@ -58,6 +60,12 @@ export default function Batches() {
     <div className="page">
       <div className="toolbar">
         <h2>Batches</h2>
+        <input
+          type="text"
+          placeholder="Filter by name..."
+          value={nameFilter}
+          onChange={(e) => { setNameFilter(e.target.value); setOffset(0); setSelected(new Set()); }}
+        />
         <select value={filter} onChange={(e) => { setFilter(e.target.value); setOffset(0); setSelected(new Set()); }}>
           {STATUSES.map((s) => (
             <option key={s} value={s}>

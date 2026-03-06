@@ -20,7 +20,7 @@ export default function Queues() {
           <tr>
             <th>Name</th>
             <th>Weight</th>
-            <th>Stream Length</th>
+            <th>Fetch Batch</th>
             <th>Pending</th>
             <th>Status</th>
             {!readOnly && <th>Actions</th>}
@@ -31,8 +31,8 @@ export default function Queues() {
             <tr key={q.name}>
               <td><strong>{q.name}</strong></td>
               <td>{q.weight}</td>
-              <td>{q.stream_length}</td>
-              <td>{q.pending_count}</td>
+              <td>{q.fetch_batch}</td>
+              <td>{q.size}</td>
               <td>
                 <span className={`badge ${q.paused ? 'badge-cancelled' : 'badge-running'}`}>
                   {q.paused ? 'Paused' : 'Active'}

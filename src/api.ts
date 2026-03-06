@@ -256,6 +256,25 @@ export interface ListParams {
   offset?: number;
   sort?: 'newest' | 'oldest';
   status?: string;
+  name?: string;
+}
+
+export interface HistoryRunParams {
+  limit?: number;
+  offset?: number;
+  sort?: string;
+  status?: string;
+  job_id?: string;
+  node_id?: string;
+  task_type?: string;
+  since?: string;
+  until?: string;
+}
+
+export interface UniqueKeyResult {
+  unique_key: string;
+  exists: boolean;
+  job_id: string;
 }
 
 function buildQS(params: ListParams): string {
@@ -271,9 +290,9 @@ function buildQS(params: ListParams): string {
 export interface QueueInfo {
   name: string;
   weight: number;
-  stream_length: number;
-  pending_count: number;
+  fetch_batch: number;
   paused: boolean;
+  size: number;
 }
 
 // --- Daily Stats ---
@@ -337,8 +356,12 @@ export const api = {
     fetchJSON<JobEvent[]>(`/api/jobs/${jobId}/events?limit=${limit}`),
   listJobRuns: (jobId: string, limit = 50) =>
     fetchJSON<JobRun[]>(`/api/jobs/${jobId}/runs?limit=${limit}`),
-  listHistoryRuns: (params: { limit?: number; offset?: number; sort?: string; status?: string; job_id?: string } = {}) => {
-    return fetchJSON<Paginated<JobRun>>(`/api/history/runs?${buildQS({ ...params, sort: params.sort as 'newest' | 'oldest' | undefined })}`);
+  listHistoryRuns: (params: HistoryRunParams = {}) => {
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v != null && v !== '') qs.set(k, String(v));
+    }
+    return fetchJSON<Paginated<JobRun>>(`/api/history/runs?${qs.toString()}`);
   },
   listHistoryEvents: (params: { limit?: number; offset?: number; job_id?: string } = {}) => {
     return fetchJSON<Paginated<JobEvent>>(`/api/history/events?${buildQS(params)}`);
@@ -395,4 +418,18 @@ export const api = {
     postJSON<{ affected: number }>('/api/batches/bulk/retry', { ids, status }),
   bulkDeleteBatches: (ids: string[], status?: string) =>
     postJSON<{ affected: number }>('/api/batches/bulk/delete', { ids, status }),
+
+  // Payload search (JSONPath)
+  searchJobsByPayload: (path: string, value: string) =>
+    fetchJSON<Job>(`/api/search/jobs?path=${encodeURIComponent(path)}&value=${encodeURIComponent(value)}`),
+  searchWorkflowsByPayload: (path: string, value: string) =>
+    fetchJSON<WorkflowInstance>(`/api/search/workflows?path=${encodeURIComponent(path)}&value=${encodeURIComponent(value)}`),
+  searchBatchesByPayload: (path: string, value: string) =>
+    fetchJSON<BatchInstance>(`/api/search/batches?path=${encodeURIComponent(path)}&value=${encodeURIComponent(value)}`),
+
+  // Unique keys
+  checkUniqueKey: (key: string) =>
+    fetchJSON<UniqueKeyResult>(`/api/unique-keys/${encodeURIComponent(key)}`),
+  deleteUniqueKey: (key: string) =>
+    deleteAction(`/api/unique-keys/${encodeURIComponent(key)}`),
 };

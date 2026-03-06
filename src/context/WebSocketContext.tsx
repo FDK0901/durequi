@@ -28,7 +28,7 @@ function getInvalidationKeys(eventType: string): string[][] {
     keys.push(['nodes'], ['stats']);
   }
   if (eventType.startsWith('schedule.')) {
-    keys.push(['schedules'], ['stats']);
+    keys.push(['schedules'], ['jobs'], ['stats']);
   }
   if (eventType.startsWith('leader.')) {
     keys.push(['stats']);

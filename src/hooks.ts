@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, type ListParams } from './api';
+import { api, type ListParams, type HistoryRunParams } from './api';
 import { useSettings } from './context/SettingsContext';
 import { useWebSocketStatus } from './context/WebSocketContext';
 
@@ -100,7 +100,7 @@ export function useWorkflow(id: string) {
   });
 }
 
-export function useHistoryRuns(params: { limit?: number; offset?: number; sort?: string; status?: string; job_id?: string } = {}) {
+export function useHistoryRuns(params: HistoryRunParams = {}) {
   const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: ['historyRuns', params],
@@ -382,6 +382,56 @@ export function useBulkDeleteBatches() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['batches'] });
       qc.invalidateQueries({ queryKey: ['batch'] });
+    },
+  });
+}
+
+// --- Payload Search ---
+
+export function useSearchJobsByPayload(path: string, value: string) {
+  return useQuery({
+    queryKey: ['searchJobs', path, value],
+    queryFn: () => api.searchJobsByPayload(path, value),
+    enabled: !!path && !!value,
+    retry: false,
+  });
+}
+
+export function useSearchWorkflowsByPayload(path: string, value: string) {
+  return useQuery({
+    queryKey: ['searchWorkflows', path, value],
+    queryFn: () => api.searchWorkflowsByPayload(path, value),
+    enabled: !!path && !!value,
+    retry: false,
+  });
+}
+
+export function useSearchBatchesByPayload(path: string, value: string) {
+  return useQuery({
+    queryKey: ['searchBatches', path, value],
+    queryFn: () => api.searchBatchesByPayload(path, value),
+    enabled: !!path && !!value,
+    retry: false,
+  });
+}
+
+// --- Unique Keys ---
+
+export function useCheckUniqueKey(key: string) {
+  return useQuery({
+    queryKey: ['uniqueKey', key],
+    queryFn: () => api.checkUniqueKey(key),
+    enabled: !!key,
+    retry: false,
+  });
+}
+
+export function useDeleteUniqueKey() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) => api.deleteUniqueKey(key),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['uniqueKey'] });
     },
   });
 }

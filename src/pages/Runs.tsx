@@ -18,6 +18,8 @@ export default function Runs() {
   const [offset, setOffset] = useState(0);
   const [statusFilter, setStatusFilter] = useState('');
   const [jobIdFilter, setJobIdFilter] = useState('');
+  const [nodeIdFilter, setNodeIdFilter] = useState('');
+  const [taskTypeFilter, setTaskTypeFilter] = useState('');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
 
   const params = useMemo(
@@ -27,8 +29,10 @@ export default function Runs() {
       sort: sortOrder,
       status: statusFilter || undefined,
       job_id: jobIdFilter || undefined,
+      node_id: nodeIdFilter || undefined,
+      task_type: taskTypeFilter || undefined,
     }),
-    [offset, sortOrder, statusFilter, jobIdFilter],
+    [offset, sortOrder, statusFilter, jobIdFilter, nodeIdFilter, taskTypeFilter],
   );
 
   const { data, isLoading, error } = useHistoryRuns(params);
@@ -48,6 +52,24 @@ export default function Runs() {
           value={jobIdFilter}
           onChange={(e) => {
             setJobIdFilter(e.target.value);
+            setOffset(0);
+          }}
+        />
+        <input
+          type="text"
+          placeholder="Filter by Node ID..."
+          value={nodeIdFilter}
+          onChange={(e) => {
+            setNodeIdFilter(e.target.value);
+            setOffset(0);
+          }}
+        />
+        <input
+          type="text"
+          placeholder="Filter by Task Type..."
+          value={taskTypeFilter}
+          onChange={(e) => {
+            setTaskTypeFilter(e.target.value);
             setOffset(0);
           }}
         />

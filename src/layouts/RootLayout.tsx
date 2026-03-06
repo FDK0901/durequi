@@ -12,6 +12,7 @@ const NAV = [
   { to: '/dlq', label: 'DLQ' },
   { to: '/workflows', label: 'Workflows' },
   { to: '/batches', label: 'Batches' },
+  { to: '/search', label: 'Search' },
   { to: '/redis', label: 'Redis' },
   { to: '/settings', label: 'Settings' },
 ];
