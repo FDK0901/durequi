@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router';
-import { useWebSocketStatus } from '../context/WebSocketContext';
 import '../App.css';
+import { useWebSocketStatus } from '../context/use-websocket-status';
 
 const NAV = [
   { to: '/', label: 'Dashboard', end: true },
@@ -12,6 +12,7 @@ const NAV = [
   { to: '/dlq', label: 'DLQ' },
   { to: '/workflows', label: 'Workflows' },
   { to: '/batches', label: 'Batches' },
+  { to: '/audit', label: 'Audit' },
   { to: '/search', label: 'Search' },
   { to: '/redis', label: 'Redis' },
   { to: '/settings', label: 'Settings' },

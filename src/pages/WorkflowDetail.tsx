@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router';
-import { useWorkflow, useCancelWorkflow, useRetryWorkflow } from '../hooks';
+import { useWorkflow, useCancelWorkflow, useRetryWorkflow, useWorkflowAuditTrail } from '../hooks';
 import { useSettings } from '../context/SettingsContext';
 import { timeAgo, formatCountdown } from '../util';
 import { JsonView } from '../components/JsonView';
@@ -209,6 +209,7 @@ export default function WorkflowDetail() {
   const navigate = useNavigate();
   const { readOnly } = useSettings();
   const { data: wf, isLoading, error } = useWorkflow(id!);
+  const { data: auditTrail } = useWorkflowAuditTrail(id!);
   const cancelMut = useCancelWorkflow();
   const retryMut = useRetryWorkflow();
 
@@ -255,6 +256,20 @@ export default function WorkflowDetail() {
               <dd>{formatCountdown(wf.deadline)}</dd>
             </>
           )}
+          {wf.parent_workflow_id && (
+            <>
+              <dt>Parent Workflow</dt>
+              <dd className="mono">
+                <span
+                  className="link"
+                  onClick={() => navigate(`/workflows/${wf.parent_workflow_id}`)}
+                >
+                  {wf.parent_workflow_id}
+                </span>
+                {wf.parent_task_name && <> (task: {wf.parent_task_name})</>}
+              </dd>
+            </>
+          )}
           {wf.attempt != null && wf.max_attempts != null && (
             <>
               <dt>Attempt</dt>
@@ -288,6 +303,7 @@ export default function WorkflowDetail() {
             <th>Status</th>
             <th>Job ID</th>
             <th>Dependencies</th>
+            <th>Child Workflow</th>
             <th>Started</th>
             <th>Finished</th>
           </tr>
@@ -313,6 +329,18 @@ export default function WorkflowDetail() {
                   ) : '-'}
                 </td>
                 <td>{def?.depends_on?.join(', ') || '-'}</td>
+                <td className="mono">
+                  {t.child_workflow_id ? (
+                    <span
+                      className="link"
+                      onClick={() => navigate(`/workflows/${t.child_workflow_id}`)}
+                    >
+                      {t.child_workflow_id.substring(0, 12)}...
+                    </span>
+                  ) : def?.child_workflow_def ? (
+                    <span className="badge badge-pending">child</span>
+                  ) : '-'}
+                </td>
                 <td>{t.started_at ? timeAgo(t.started_at) : '-'}</td>
                 <td>{t.finished_at ? timeAgo(t.finished_at) : '-'}</td>
               </tr>
@@ -325,6 +353,41 @@ export default function WorkflowDetail() {
         <>
           <h3>Input</h3>
           <JsonView data={wf.input} />
+        </>
+      )}
+
+      {auditTrail && auditTrail.length > 0 && (
+        <>
+          <h3>Audit Trail</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Task</th>
+                <th>Status</th>
+                <th>Job ID</th>
+                <th>Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {auditTrail.map((entry) => (
+                <tr key={entry.id}>
+                  <td>{timeAgo(entry.timestamp)}</td>
+                  <td>{entry.task_name}</td>
+                  <td><span className={`badge badge-${entry.status}`}>{entry.status}</span></td>
+                  <td className="mono">
+                    <span
+                      className="link"
+                      onClick={() => navigate(`/jobs/${entry.job_id}`)}
+                    >
+                      {entry.job_id.substring(0, 12)}...
+                    </span>
+                  </td>
+                  <td className="error-text">{entry.error || '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </>
       )}
     </div>

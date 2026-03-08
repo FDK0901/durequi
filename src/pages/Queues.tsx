@@ -21,6 +21,7 @@ export default function Queues() {
             <th>Name</th>
             <th>Weight</th>
             <th>Fetch Batch</th>
+            <th>Rate Limit</th>
             <th>Pending</th>
             <th>Status</th>
             {!readOnly && <th>Actions</th>}
@@ -32,6 +33,7 @@ export default function Queues() {
               <td><strong>{q.name}</strong></td>
               <td>{q.weight}</td>
               <td>{q.fetch_batch}</td>
+              <td>{q.rate_limit ? `${q.rate_limit}/s (burst: ${q.rate_burst ?? q.rate_limit})` : '-'}</td>
               <td>{q.size}</td>
               <td>
                 <span className={`badge ${q.paused ? 'badge-cancelled' : 'badge-running'}`}>

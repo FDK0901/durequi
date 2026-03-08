@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { useJobs, useCancelJob, useRetryJob, useBulkCancelJobs, useBulkRetryJobs, useBulkDeleteJobs } from '../hooks';
+import { useJobs, useCancelJob, useRetryJob, useBulkCancelJobs, useBulkRetryJobs, useBulkDeleteJobs, useAuditCounts } from '../hooks';
 import { useSettings } from '../context/SettingsContext';
 import { timeAgo } from '../util';
 import { PriorityBadge } from '../components/PriorityBadge';
@@ -49,6 +49,8 @@ export default function Jobs() {
 
   const jobs = data?.data ?? [];
   const total = data?.total ?? 0;
+  const jobIds = jobs.map((j) => j.id);
+  const { data: auditCounts } = useAuditCounts(jobIds);
 
   const allSelected = jobs.length > 0 && jobs.every((j) => selected.has(j.id));
 
@@ -165,6 +167,7 @@ export default function Jobs() {
             <th>Status</th>
             <th>Schedule</th>
             <th>Attempt</th>
+            <th>Audit</th>
             <th>Updated</th>
             {!readOnly && <th>Actions</th>}
           </tr>
@@ -198,6 +201,7 @@ export default function Jobs() {
               </td>
               <td>{j.schedule.type}</td>
               <td>{j.attempt}</td>
+              <td>{auditCounts?.[j.id] ?? '-'}</td>
               <td>{timeAgo(j.updated_at)}</td>
               {!readOnly && (
                 <td onClick={(e) => e.stopPropagation()}>
@@ -225,7 +229,7 @@ export default function Jobs() {
           ))}
           {jobs.length === 0 && (
             <tr>
-              <td colSpan={readOnly ? 8 : 9} className="empty">
+              <td colSpan={readOnly ? 9 : 10} className="empty">
                 No jobs found
               </td>
             </tr>

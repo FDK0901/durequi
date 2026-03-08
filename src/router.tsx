@@ -15,6 +15,7 @@ import BatchDetail from './pages/BatchDetail';
 import Queues from './pages/Queues';
 import RedisInfo from './pages/RedisInfo';
 import Search from './pages/Search';
+import AuditTrail from './pages/AuditTrail';
 
 export const router = createBrowserRouter([
   {
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
       { path: 'workflows/:id', element: <WorkflowDetail /> },
       { path: 'batches', element: <Batches /> },
       { path: 'batches/:id', element: <BatchDetail /> },
+      { path: 'audit', element: <AuditTrail /> },
       { path: 'search', element: <Search /> },
       { path: 'redis', element: <RedisInfo /> },
       { path: 'settings', element: <Settings /> },

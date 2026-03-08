@@ -10,7 +10,7 @@ interface UseWebSocketOptions {
 export function useWebSocket({ onMessage, enabled }: UseWebSocketOptions) {
   const [status, setStatus] = useState<WsStatus>('disconnected');
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const attemptRef = useRef(0);
   const enabledRef = useRef(enabled);
   enabledRef.current = enabled;
@@ -46,6 +46,7 @@ export function useWebSocket({ onMessage, enabled }: UseWebSocketOptions) {
       if (enabledRef.current) {
         const delay = Math.min(1000 * Math.pow(2, attemptRef.current), 30000);
         attemptRef.current++;
+        // eslint-disable-next-line react-hooks/immutability
         reconnectTimerRef.current = setTimeout(connect, delay);
       }
     };
@@ -68,7 +69,7 @@ export function useWebSocket({ onMessage, enabled }: UseWebSocketOptions) {
     }
 
     return () => {
-      clearTimeout(reconnectTimerRef.current);
+      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
       if (wsRef.current) {
         wsRef.current.close(1000, 'component unmount');
         wsRef.current = null;

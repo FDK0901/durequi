@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type ListParams, type HistoryRunParams } from './api';
 import { useSettings } from './context/SettingsContext';
-import { useWebSocketStatus } from './context/WebSocketContext';
+import { useWebSocketStatus } from './context/use-websocket-status';
 
 function useRefetchInterval() {
   const { refreshInterval } = useSettings();
@@ -433,5 +433,51 @@ export function useDeleteUniqueKey() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['uniqueKey'] });
     },
+  });
+}
+
+// --- Audit Trail ---
+
+export function useJobAuditTrail(jobId: string) {
+  return useQuery({
+    queryKey: ['jobAudit', jobId],
+    queryFn: () => api.getJobAuditTrail(jobId),
+    enabled: !!jobId,
+  });
+}
+
+export function useAuditCounts(ids: string[]) {
+  return useQuery({
+    queryKey: ['auditCounts', ids],
+    queryFn: () => api.getAuditCounts(ids),
+    enabled: ids.length > 0,
+  });
+}
+
+export function useWorkflowAuditTrail(workflowId: string) {
+  const refetchInterval = useRefetchInterval();
+  return useQuery({
+    queryKey: ['workflowAudit', workflowId],
+    queryFn: () => api.getWorkflowAuditTrail(workflowId),
+    enabled: !!workflowId,
+    refetchInterval,
+  });
+}
+
+// --- Node Drain ---
+
+export function useDrainNode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (nodeId: string) => api.drainNode(nodeId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['nodes'] }),
+  });
+}
+
+export function useUndrainNode() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (nodeId: string) => api.undrainNode(nodeId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['nodes'] }),
   });
 }

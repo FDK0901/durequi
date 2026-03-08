@@ -1,8 +1,9 @@
 import { useParams, useNavigate } from 'react-router';
-import { useJob, useCancelJob, useRetryJob } from '../hooks';
+import { useJob, useCancelJob, useRetryJob, useJobAuditTrail } from '../hooks';
 import { useSettings } from '../context/SettingsContext';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { JsonView } from '../components/JsonView';
+import { timeAgo } from '../util';
 
 function isTerminal(status: string): boolean {
   return ['completed', 'dead', 'cancelled'].includes(status);
@@ -13,6 +14,7 @@ export default function JobDetail() {
   const navigate = useNavigate();
   const { readOnly } = useSettings();
   const { data: job, isLoading, error } = useJob(id!);
+  const { data: auditTrail } = useJobAuditTrail(id!);
   const cancelMut = useCancelJob();
   const retryMut = useRetryJob();
 
@@ -124,6 +126,12 @@ export default function JobDetail() {
               <dd>{job.retry_policy.max_attempts}</dd>
               <dt>Multiplier</dt>
               <dd>{job.retry_policy.multiplier}</dd>
+              {job.retry_policy.non_retryable_errors && job.retry_policy.non_retryable_errors.length > 0 && (
+                <>
+                  <dt>Non-Retryable Errors</dt>
+                  <dd>{job.retry_policy.non_retryable_errors.join(', ')}</dd>
+                </>
+              )}
             </dl>
           </>
         )}
@@ -132,6 +140,30 @@ export default function JobDetail() {
           <>
             <h3>Payload</h3>
             <JsonView data={job.payload} />
+          </>
+        )}
+
+        {auditTrail && auditTrail.length > 0 && (
+          <>
+            <h3>Audit Trail</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Status</th>
+                  <th>Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {auditTrail.map((entry) => (
+                  <tr key={entry.id}>
+                    <td>{timeAgo(entry.timestamp)}</td>
+                    <td><span className={`badge badge-${entry.status}`}>{entry.status}</span></td>
+                    <td className="error-text">{entry.error || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </>
         )}
       </div>

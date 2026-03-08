@@ -42,6 +42,7 @@ export interface RetryPolicy {
   max_delay: number;
   multiplier: number;
   jitter: number;
+  non_retryable_errors?: string[];
 }
 
 export interface NodeInfo {
@@ -107,6 +108,7 @@ export interface WorkflowTaskDef {
   task_type: string;
   payload?: unknown;
   depends_on?: string[];
+  child_workflow_def?: WorkflowDefinition;
 }
 
 export interface WorkflowDefinition {
@@ -127,6 +129,8 @@ export interface WorkflowInstance {
   deadline?: string;
   attempt?: number;
   max_attempts?: number;
+  parent_workflow_id?: string;
+  parent_task_name?: string;
   created_at: string;
   updated_at: string;
   completed_at?: string;
@@ -139,6 +143,7 @@ export interface WorkflowTaskState {
   error?: string;
   started_at?: string;
   finished_at?: string;
+  child_workflow_id?: string;
 }
 
 // --- Batch types ---
@@ -291,8 +296,35 @@ export interface QueueInfo {
   name: string;
   weight: number;
   fetch_batch: number;
+  rate_limit?: number;
+  rate_burst?: number;
   paused: boolean;
   size: number;
+}
+
+// --- Audit Trail ---
+
+export interface AuditEntry {
+  id: string;
+  status: string;
+  error?: string;
+  timestamp: string;
+}
+
+export interface WorkflowAuditEntry {
+  task_name: string;
+  job_id: string;
+  id: string;
+  status: string;
+  error?: string;
+  timestamp: string;
+}
+
+// --- Node Drain ---
+
+export interface NodeDrainStatus {
+  node_id: string;
+  draining: boolean;
 }
 
 // --- Daily Stats ---
@@ -432,4 +464,18 @@ export const api = {
     fetchJSON<UniqueKeyResult>(`/api/unique-keys/${encodeURIComponent(key)}`),
   deleteUniqueKey: (key: string) =>
     deleteAction(`/api/unique-keys/${encodeURIComponent(key)}`),
+
+  // Audit trail
+  getJobAuditTrail: (jobId: string) =>
+    fetchJSON<AuditEntry[]>(`/api/jobs/${jobId}/audit`),
+  getAuditCounts: (ids: string[]) =>
+    postJSON<Record<string, number>>('/api/audit/counts', { ids }),
+  getWorkflowAuditTrail: (workflowId: string) =>
+    fetchJSON<WorkflowAuditEntry[]>(`/api/workflows/${workflowId}/audit`),
+
+  // Node drain
+  getNodeDrainStatus: (nodeId: string) =>
+    fetchJSON<NodeDrainStatus>(`/api/nodes/${nodeId}/drain`),
+  drainNode: (nodeId: string) => postAction(`/api/nodes/${nodeId}/drain`),
+  undrainNode: (nodeId: string) => deleteAction(`/api/nodes/${nodeId}/drain`),
 };

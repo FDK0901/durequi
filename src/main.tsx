@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider } from 'react-router'
 import { SettingsProvider } from './context/SettingsContext'
-import { WebSocketProvider } from './context/WebSocketContext'
+import { WebSocketProvider } from './context/WebsocketProvider'
 import { router } from './router'
 import './index.css'
 
