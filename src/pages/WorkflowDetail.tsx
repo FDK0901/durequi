@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router';
 import { useWorkflow, useCancelWorkflow, useRetryWorkflow, useWorkflowAuditTrail } from '../hooks';
-import { useSettings } from '../context/SettingsContext';
+import { useSettings } from '../context/useSettings';
 import { timeAgo, formatCountdown } from '../util';
 import { JsonView } from '../components/JsonView';
 import type { WorkflowInstance, WorkflowTaskDef, WorkflowTaskState } from '../api';

@@ -1,5 +1,5 @@
 import { useNodes, useDrainNode, useUndrainNode } from '../hooks';
-import { useSettings } from '../context/SettingsContext';
+import { useSettings } from '../context/useSettings';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../api';
 import { timeAgo } from '../util';

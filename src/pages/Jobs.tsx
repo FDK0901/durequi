@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useJobs, useCancelJob, useRetryJob, useBulkCancelJobs, useBulkRetryJobs, useBulkDeleteJobs, useAuditCounts } from '../hooks';
-import { useSettings } from '../context/SettingsContext';
+import { useSettings } from '../context/useSettings';
 import { timeAgo } from '../util';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { Pagination, SortSelect } from '../components/Pagination';

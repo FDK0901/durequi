@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useWorkflows, useCancelWorkflow, useRetryWorkflow, useBulkCancelWorkflows, useBulkRetryWorkflows, useBulkDeleteWorkflows } from '../hooks';
-import { useSettings } from '../context/SettingsContext';
+import { useSettings } from '../context/useSettings';
 import { timeAgo } from '../util';
 import { Pagination, SortSelect } from '../components/Pagination';
 

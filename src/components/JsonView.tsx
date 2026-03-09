@@ -3,6 +3,8 @@
  * No external dependencies required.
  */
 
+import type { JSX } from "react";
+
 function highlightJSON(value: unknown, indent = 0): JSX.Element[] {
   const pad = '  '.repeat(indent);
   const elements: JSX.Element[] = [];

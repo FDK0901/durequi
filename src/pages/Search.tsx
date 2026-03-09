@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useSearchJobsByPayload, useSearchWorkflowsByPayload, useSearchBatchesByPayload, useCheckUniqueKey, useDeleteUniqueKey } from '../hooks';
-import { useSettings } from '../context/SettingsContext';
+import { useSettings } from '../context/useSettings';
 
 type SearchTarget = 'jobs' | 'workflows' | 'batches';
 

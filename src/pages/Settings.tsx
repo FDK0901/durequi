@@ -1,4 +1,4 @@
-import { useSettings } from '../context/SettingsContext';
+import { useSettings } from '../context/useSettings';
 
 const REFRESH_OPTIONS = [
   { label: '1s', value: 1000 },

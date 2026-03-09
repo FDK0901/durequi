@@ -1,5 +1,5 @@
 import { useQueues, usePauseQueue, useResumeQueue } from '../hooks';
-import { useSettings } from '../context/SettingsContext';
+import { useSettings } from '../context/useSettings';
 
 export default function Queues() {
   const { data: queues, isLoading, error } = useQueues();

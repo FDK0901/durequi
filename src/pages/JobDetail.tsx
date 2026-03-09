@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router';
 import { useJob, useCancelJob, useRetryJob, useJobAuditTrail } from '../hooks';
-import { useSettings } from '../context/SettingsContext';
+import { useSettings } from '../context/useSettings';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { JsonView } from '../components/JsonView';
 import { timeAgo } from '../util';
