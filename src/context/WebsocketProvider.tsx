@@ -1,9 +1,9 @@
 import { useCallback, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { useSettings } from './SettingsContext';
 import type { JobEvent } from '../api';
-import { WebSocketContext } from './WebSocketContext';
+import { WebsocketContext } from './WebsocketContext';
+import { useSettings } from './useSettings';
 
 function getInvalidationKeys(eventType: string): string[][] {
   const keys: string[][] = [];
@@ -70,8 +70,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const { status } = useWebSocket({ onMessage, enabled: wsEnabled });
 
   return (
-    <WebSocketContext.Provider value={{ status }}>
+    <WebsocketContext.Provider value={{ status }}>
       {children}
-    </WebSocketContext.Provider>
+    </WebsocketContext.Provider>
   );
 }

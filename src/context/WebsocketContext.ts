@@ -1,10 +1,10 @@
 import { createContext } from "react";
 import type { WsStatus } from "../hooks/useWebSocket";
 
-interface WebSocketContextValue {
+interface WebsocketContextValue {
     status: WsStatus;
 }
 
-export const WebSocketContext = createContext<WebSocketContextValue>({
+export const WebsocketContext = createContext<WebsocketContextValue>({
     status: 'disconnected',
 });

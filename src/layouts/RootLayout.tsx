@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router';
 import '../App.css';
-import { useWebSocketStatus } from '../context/use-websocket-status';
+import { useWebSocketStatus } from '../context/useWebsocketStatus';
 
 const NAV = [
   { to: '/', label: 'Dashboard', end: true },

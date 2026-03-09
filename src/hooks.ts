@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api, type ListParams, type HistoryRunParams } from './api';
-import { useSettings } from './context/SettingsContext';
-import { useWebSocketStatus } from './context/use-websocket-status';
+
+import { useWebSocketStatus } from './context/useWebsocketStatus';
+import { useSettings } from './context/useSettings';
 
 function useRefetchInterval() {
   const { refreshInterval } = useSettings();
