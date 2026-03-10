@@ -51,6 +51,18 @@ export default function Dashboard() {
           <div className="stat-value">{stats.active_runs}</div>
           <div className="stat-label">Active Runs</div>
         </div>
+        {stats.active_workflows != null && (
+          <div className="stat-card">
+            <div className="stat-value">{stats.active_workflows}</div>
+            <div className="stat-label">Active Workflows</div>
+          </div>
+        )}
+        {stats.active_batches != null && (
+          <div className="stat-card">
+            <div className="stat-value">{stats.active_batches}</div>
+            <div className="stat-label">Active Batches</div>
+          </div>
+        )}
         {syncRetries && (syncRetries.pending > 0 || syncRetries.failed > 0) && (
           <div className={`stat-card ${syncRetries.failed > 0 ? 'stat-card-danger' : 'stat-card-warning'}`}>
             <div className="stat-value">
@@ -137,6 +149,54 @@ export default function Dashboard() {
           ))}
         </tbody>
       </table>
+
+      {stats.workflow_counts && Object.keys(stats.workflow_counts).length > 0 && (
+        <>
+          <h3>Workflows by Status</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Count</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(stats.workflow_counts).map(([s, count]) => (
+                <tr key={s}>
+                  <td>
+                    <span className={`badge badge-${s}`}>{s}</span>
+                  </td>
+                  <td>{count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {stats.batch_counts && Object.keys(stats.batch_counts).length > 0 && (
+        <>
+          <h3>Batches by Status</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Status</th>
+                <th>Count</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.entries(stats.batch_counts).map(([s, count]) => (
+                <tr key={s}>
+                  <td>
+                    <span className={`badge badge-${s}`}>{s}</span>
+                  </td>
+                  <td>{count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
     </div>
   );
 }

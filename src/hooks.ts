@@ -172,6 +172,37 @@ export function useRetryWorkflow() {
   });
 }
 
+export function useWorkflowTaskResult(wfId: string, taskName: string) {
+  return useQuery({
+    queryKey: ['workflowTaskResult', wfId, taskName],
+    queryFn: () => api.getWorkflowTaskResult(wfId, taskName),
+    enabled: !!wfId && !!taskName,
+    retry: false,
+  });
+}
+
+export function useSuspendWorkflow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.suspendWorkflow(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['workflows'] });
+      qc.invalidateQueries({ queryKey: ['workflow'] });
+    },
+  });
+}
+
+export function useResumeWorkflow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.resumeWorkflow(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['workflows'] });
+      qc.invalidateQueries({ queryKey: ['workflow'] });
+    },
+  });
+}
+
 // --- Batches ---
 
 export function useBatches(params: ListParams = {}) {

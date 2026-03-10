@@ -76,6 +76,10 @@ export interface Stats {
   active_schedules: number;
   active_runs: number;
   active_nodes: number;
+  workflow_counts?: Record<string, number>;
+  batch_counts?: Record<string, number>;
+  active_workflows?: number;
+  active_batches?: number;
 }
 
 export interface JobRun {
@@ -103,12 +107,39 @@ export interface JobEvent {
   affected_run_ids?: string[];
 }
 
+export interface Precondition {
+  type: string;
+  task?: string;
+  path: string;
+  expected: string;
+}
+
 export interface WorkflowTaskDef {
   name: string;
   task_type: string;
   payload?: unknown;
   depends_on?: string[];
+  priority?: number;
+  type?: '' | 'condition' | 'subflow';
+  condition_routes?: Record<number, string>;
+  max_iterations?: number;
   child_workflow_def?: WorkflowDefinition;
+  allow_failure?: boolean;
+  result_from?: string;
+  preconditions?: Precondition[];
+}
+
+export interface WorkflowHookDef {
+  task_type: string;
+  payload?: unknown;
+  timeout?: string;
+}
+
+export interface WorkflowHooks {
+  on_init?: WorkflowHookDef;
+  on_success?: WorkflowHookDef;
+  on_failure?: WorkflowHookDef;
+  on_exit?: WorkflowHookDef;
 }
 
 export interface WorkflowDefinition {
@@ -117,6 +148,7 @@ export interface WorkflowDefinition {
   execution_timeout?: number;
   retry_policy?: RetryPolicy;
   default_priority?: number;
+  hooks?: WorkflowHooks;
 }
 
 export interface WorkflowInstance {
@@ -126,11 +158,13 @@ export interface WorkflowInstance {
   tasks: Record<string, WorkflowTaskState>;
   definition: WorkflowDefinition;
   input?: unknown;
+  output?: unknown;
   deadline?: string;
   attempt?: number;
   max_attempts?: number;
   parent_workflow_id?: string;
   parent_task_name?: string;
+  hook_states?: Record<string, WorkflowTaskState>;
   created_at: string;
   updated_at: string;
   completed_at?: string;
@@ -144,6 +178,11 @@ export interface WorkflowTaskState {
   started_at?: string;
   finished_at?: string;
   child_workflow_id?: string;
+  condition_route?: number;
+  subflow_tasks?: string[];
+  iterations?: number;
+  skipped?: boolean;
+  skip_reason?: string;
 }
 
 // --- Batch types ---
@@ -405,6 +444,12 @@ export const api = {
   getWorkflow: (id: string) => fetchJSON<WorkflowInstance>(`/api/workflows/${id}`),
   cancelWorkflow: (id: string) => postAction(`/api/workflows/${id}/cancel`),
   retryWorkflow: (id: string) => postAction(`/api/workflows/${id}/retry`),
+  suspendWorkflow: (id: string) => postAction(`/api/workflows/${id}/suspend`),
+  resumeWorkflow: (id: string) => postAction(`/api/workflows/${id}/resume`),
+  getWorkflowTaskResult: (wfId: string, taskName: string) =>
+    fetchJSON<{ output: unknown }>(`/api/workflows/${wfId}/tasks/${encodeURIComponent(taskName)}/result`),
+  validateWorkflow: (def: WorkflowDefinition) =>
+    postJSON<{ valid: boolean; errors?: string[] }>('/api/workflows/validate', def),
 
   // Batches
   listBatches: (params: ListParams = {}) =>
