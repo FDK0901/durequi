@@ -392,6 +392,17 @@ export interface SyncRetryItem {
 
 export type RedisInfoSections = Record<string, Record<string, string>>;
 
+export interface RedisNodeInfo {
+  addr: string;
+  role: string;
+  sections: RedisInfoSections;
+}
+
+export interface RedisInfoResponse {
+  mode: 'cluster' | 'standalone';
+  nodes: RedisNodeInfo[];
+}
+
 async function putJSON<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(path, {
     method: 'PUT',
@@ -471,7 +482,7 @@ export const api = {
   getDailyStats: (days = 30) => fetchJSON<DailyStat[]>(`/api/stats/daily?days=${days}`),
 
   // Redis Info
-  getRedisInfo: () => fetchJSON<RedisInfoSections>('/api/redis/info'),
+  getRedisInfo: () => fetchJSON<RedisInfoResponse>('/api/redis/info'),
 
   // Sync Retries
   getSyncRetries: () => fetchJSON<SyncRetryStats>('/api/sync-retries'),
