@@ -590,6 +590,80 @@ tr.clickable:hover td {
   font-size: 0.8rem;
 }
 
+.redis-mode-badge {
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  margin-left: 0.75rem;
+  vertical-align: middle;
+  background: #2a2d3e;
+  color: #c0c4d6;
+}
+
+.redis-mode-badge[data-mode="cluster"] {
+  background: #1a3a2a;
+  color: #4ade80;
+}
+
+.redis-node-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #2a2d3e;
+}
+
+.redis-node-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid #2a2d3e;
+  border-radius: 6px;
+  background: transparent;
+  color: #8b8fa3;
+  font-size: 0.78rem;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.redis-node-tab:hover {
+  border-color: #7c8aff;
+  color: #c0c4d6;
+}
+
+.redis-node-tab.active {
+  border-color: #7c8aff;
+  background: rgba(124, 138, 255, 0.1);
+  color: #fff;
+}
+
+.redis-role-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8b8fa3;
+  flex-shrink: 0;
+}
+
+.redis-role-dot.master {
+  background: #4ade80;
+}
+
+.redis-role-dot.slave,
+.redis-role-dot.replica {
+  background: #facc15;
+}
+
+.redis-role-label {
+  font-size: 0.65rem;
+  opacity: 0.6;
+  text-transform: uppercase;
+}
+
 /* Syntax highlighted payload */
 .payload-block {
   background: #0d0e14;
@@ -636,3 +710,76 @@ tr.clickable:hover td {
 
 /* Badge for succeeded status */
 .badge-succeeded { background: #0a3622; color: #4ade80; }
+
+/* Suspended status badge */
+.badge-suspended { background: #3b2f08; color: #fb923c; }
+
+/* Skipped status */
+.badge-skipped { background: #1e2030; color: #8b8fa3; }
+
+/* Task detail sidebar */
+.task-sidebar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 340px;
+  height: 100vh;
+  background: #161822;
+  border-left: 1px solid #2a2d3e;
+  padding: 1.5rem;
+  overflow-y: auto;
+  z-index: 100;
+  box-shadow: -4px 0 12px rgba(0,0,0,0.3);
+}
+
+.task-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.25rem;
+}
+
+.task-sidebar-close {
+  background: none;
+  border: none;
+  color: #8b8fa3;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+
+.task-sidebar dl {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.task-sidebar dt {
+  color: #8b8fa3;
+}
+
+.task-sidebar dd {
+  color: #c0c4d6;
+  word-break: break-all;
+}
+
+/* Collapsible section */
+.collapsible-toggle {
+  background: none;
+  border: none;
+  color: #7c8aff;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 0;
+}
+
+.collapsible-toggle:hover {
+  text-decoration: underline;
+}
+
+/* DAG node interactive */
+.dag-svg g { cursor: pointer; }
+.dag-svg g:hover rect,
+.dag-svg g:hover polygon {
+  filter: brightness(1.2);
+}
