@@ -717,6 +717,12 @@ tr.clickable:hover td {
 /* Skipped status */
 .badge-skipped { background: #1e2030; color: #8b8fa3; }
 
+/* Continued status */
+.badge-continued { background: #0c3544; color: #22d3ee; }
+
+/* Paused status (alias for suspended) */
+.badge-paused { background: #2d1b4e; color: #c084fc; }
+
 /* Task detail sidebar */
 .task-sidebar {
   position: fixed;
@@ -775,6 +781,24 @@ tr.clickable:hover td {
 
 .collapsible-toggle:hover {
   text-decoration: underline;
+}
+
+/* Operations page */
+.ops-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.ops-section {
+  background: #161822;
+  border: 1px solid #2a2d3e;
+  border-radius: 8px;
+  padding: 1.25rem;
+}
+
+.ops-section h3 {
+  margin-top: 0;
 }
 
 /* DAG node interactive */

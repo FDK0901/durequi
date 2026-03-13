@@ -1,5 +1,12 @@
 // API client for the dureq monitoring HTTP endpoints.
 
+export interface ConcurrencyKey {
+  key: string;
+  max_concurrency: number;
+}
+
+export type ResultReusePolicy = 'always' | 'never' | 'on_success';
+
 export interface Job {
   id: string;
   task_type: string;
@@ -19,6 +26,7 @@ export interface Job {
   dlq_after?: number;
   workflow_id?: string;
   workflow_task?: string;
+  concurrency_keys?: ConcurrencyKey[];
   created_at: string;
   updated_at: string;
 }
@@ -127,6 +135,7 @@ export interface WorkflowTaskDef {
   allow_failure?: boolean;
   result_from?: string;
   preconditions?: Precondition[];
+  result_reuse?: ResultReusePolicy;
 }
 
 export interface WorkflowHookDef {
@@ -165,6 +174,9 @@ export interface WorkflowInstance {
   parent_workflow_id?: string;
   parent_task_name?: string;
   hook_states?: Record<string, WorkflowTaskState>;
+  continued_from?: string;
+  continued_to?: string;
+  archived_task_count?: number;
   created_at: string;
   updated_at: string;
   completed_at?: string;
@@ -534,4 +546,48 @@ export const api = {
     fetchJSON<NodeDrainStatus>(`/api/nodes/${nodeId}/drain`),
   drainNode: (nodeId: string) => postAction(`/api/nodes/${nodeId}/drain`),
   undrainNode: (nodeId: string) => deleteAction(`/api/nodes/${nodeId}/drain`),
+
+  // Repair / Inspect
+  requeueRun: (runId: string) => postAction(`/api/runs/${runId}/requeue`),
+  getLock: (key: string) =>
+    fetchJSON<LockInfo>(`/api/locks/${encodeURIComponent(key)}`),
+  forceUnlock: (key: string) =>
+    deleteAction(`/api/locks/${encodeURIComponent(key)}?fencing=true`),
+  getConcurrencyInfo: (key: string) =>
+    fetchJSON<ConcurrencyInfo>(`/api/concurrency/${encodeURIComponent(key)}`),
+
+  // Groups
+  listGroups: () => fetchJSON<GroupInfo[]>('/api/groups'),
+
+  // Run/Job progress
+  getRunProgress: (runId: string) =>
+    fetchJSON<RunProgress>(`/api/runs/${runId}/progress`),
+  getJobProgress: (jobId: string) =>
+    fetchJSON<RunProgress>(`/api/jobs/${jobId}/progress`),
 };
+
+// --- Repair / Inspect types ---
+
+export interface LockInfo {
+  key: string;
+  owner: string;
+  ttl: number;
+  exists: boolean;
+}
+
+export interface ConcurrencyInfo {
+  key: string;
+  active_slots: number;
+  active_run_ids: string[];
+}
+
+export interface GroupInfo {
+  name: string;
+  size: number;
+}
+
+export interface RunProgress {
+  progress?: number;
+  message?: string;
+  details?: unknown;
+}

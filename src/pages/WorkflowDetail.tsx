@@ -165,7 +165,8 @@ function statusColor(status: string): string {
     case 'running': return '#60a5fa';
     case 'failed': case 'dead': return '#f87171';
     case 'cancelled': return '#8b8fa3';
-    case 'paused': return '#c084fc';
+    case 'paused': case 'suspended': return '#c084fc';
+    case 'continued': return '#22d3ee';
     default: return '#fbbf24';
   }
 }
@@ -176,7 +177,8 @@ function statusBg(status: string): string {
     case 'running': return '#0c2d5e';
     case 'failed': case 'dead': return '#3b1114';
     case 'cancelled': return '#1e2030';
-    case 'paused': return '#2d1b4e';
+    case 'paused': case 'suspended': return '#2d1b4e';
+    case 'continued': return '#0c3544';
     default: return '#3b2f08';
   }
 }
@@ -647,6 +649,12 @@ function TaskDetailSidebar({ wf, taskName, onClose }: { wf: WorkflowInstance; ta
             <dd>Yes</dd>
           </>
         )}
+        {def?.result_reuse && def.result_reuse !== 'always' && (
+          <>
+            <dt>Result Reuse</dt>
+            <dd>{def.result_reuse}</dd>
+          </>
+        )}
         {state.error && (
           <>
             <dt>Error</dt>
@@ -708,7 +716,7 @@ export default function WorkflowDetail() {
   if (!wf) return <div className="error">Workflow not found</div>;
 
   const taskEntries = Object.values(wf.tasks ?? {});
-  const isActive = wf.status === 'pending' || wf.status === 'running';
+  const isActive = wf.status === 'pending' || wf.status === 'running' || wf.status === 'suspended';
   const hookEntries = wf.hook_states ? Object.entries(wf.hook_states) : [];
 
   return (
@@ -779,10 +787,42 @@ export default function WorkflowDetail() {
               </dd>
             </>
           )}
+          {wf.continued_from && (
+            <>
+              <dt>Continued From</dt>
+              <dd className="mono">
+                <span
+                  className="link"
+                  onClick={() => navigate(`/workflows/${wf.continued_from}`)}
+                >
+                  {wf.continued_from}
+                </span>
+              </dd>
+            </>
+          )}
+          {wf.continued_to && (
+            <>
+              <dt>Continued To</dt>
+              <dd className="mono">
+                <span
+                  className="link"
+                  onClick={() => navigate(`/workflows/${wf.continued_to}`)}
+                >
+                  {wf.continued_to}
+                </span>
+              </dd>
+            </>
+          )}
           {wf.attempt != null && wf.max_attempts != null && (
             <>
               <dt>Attempt</dt>
               <dd>{wf.attempt} / {wf.max_attempts}</dd>
+            </>
+          )}
+          {(wf.archived_task_count ?? 0) > 0 && (
+            <>
+              <dt>Archived Tasks</dt>
+              <dd>{wf.archived_task_count} (compacted)</dd>
             </>
           )}
           <dt>Created</dt>

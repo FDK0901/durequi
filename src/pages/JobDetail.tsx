@@ -1,5 +1,5 @@
 import { useParams, useNavigate } from 'react-router';
-import { useJob, useCancelJob, useRetryJob, useJobAuditTrail } from '../hooks';
+import { useJob, useCancelJob, useRetryJob, useJobAuditTrail, useJobProgress } from '../hooks';
 import { useSettings } from '../context/useSettings';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { JsonView } from '../components/JsonView';
@@ -15,6 +15,7 @@ export default function JobDetail() {
   const { readOnly } = useSettings();
   const { data: job, isLoading, error } = useJob(id!);
   const { data: auditTrail } = useJobAuditTrail(id!);
+  const { data: progress } = useJobProgress(id!);
   const cancelMut = useCancelJob();
   const retryMut = useRetryJob();
 
@@ -112,11 +113,39 @@ export default function JobDetail() {
               </dd>
             </>
           )}
+          {job.concurrency_keys && job.concurrency_keys.length > 0 && (
+            <>
+              <dt>Concurrency Keys</dt>
+              <dd>
+                {job.concurrency_keys.map((ck) => (
+                  <span key={ck.key} className="badge badge-scheduled" style={{ marginRight: 4 }}>
+                    {ck.key} (max: {ck.max_concurrency})
+                  </span>
+                ))}
+              </dd>
+            </>
+          )}
           <dt>Created</dt>
           <dd>{new Date(job.created_at).toLocaleString()}</dd>
           <dt>Updated</dt>
           <dd>{new Date(job.updated_at).toLocaleString()}</dd>
         </dl>
+
+        {progress && progress.progress != null && (
+          <>
+            <h3>Progress</h3>
+            <div className="progress-bar" style={{ marginBottom: '0.5rem' }}>
+              <div
+                className="progress-fill progress-success"
+                style={{ width: `${Math.min(progress.progress, 100)}%` }}
+              />
+            </div>
+            <div className="progress-stats">
+              <span>{progress.progress}%</span>
+              {progress.message && <span>{progress.message}</span>}
+            </div>
+          </>
+        )}
 
         {job.retry_policy && (
           <>

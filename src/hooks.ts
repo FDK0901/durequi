@@ -496,6 +496,78 @@ export function useWorkflowAuditTrail(workflowId: string) {
   });
 }
 
+// --- Repair / Inspect ---
+
+export function useRequeueRun() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (runId: string) => api.requeueRun(runId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['historyRuns'] });
+      qc.invalidateQueries({ queryKey: ['stats'] });
+    },
+  });
+}
+
+export function useLockInfo(key: string) {
+  return useQuery({
+    queryKey: ['lock', key],
+    queryFn: () => api.getLock(key),
+    enabled: !!key,
+    retry: false,
+  });
+}
+
+export function useForceUnlock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) => api.forceUnlock(key),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['lock'] }),
+  });
+}
+
+export function useConcurrencyInfo(key: string) {
+  const refetchInterval = useRefetchInterval();
+  return useQuery({
+    queryKey: ['concurrency', key],
+    queryFn: () => api.getConcurrencyInfo(key),
+    enabled: !!key,
+    refetchInterval,
+    retry: false,
+  });
+}
+
+export function useGroups() {
+  const refetchInterval = useRefetchInterval();
+  return useQuery({
+    queryKey: ['groups'],
+    queryFn: api.listGroups,
+    refetchInterval,
+  });
+}
+
+export function useRunProgress(runId: string) {
+  const refetchInterval = useRefetchInterval();
+  return useQuery({
+    queryKey: ['runProgress', runId],
+    queryFn: () => api.getRunProgress(runId),
+    enabled: !!runId,
+    refetchInterval,
+    retry: false,
+  });
+}
+
+export function useJobProgress(jobId: string) {
+  const refetchInterval = useRefetchInterval();
+  return useQuery({
+    queryKey: ['jobProgress', jobId],
+    queryFn: () => api.getJobProgress(jobId),
+    enabled: !!jobId,
+    refetchInterval,
+    retry: false,
+  });
+}
+
 // --- Node Drain ---
 
 export function useDrainNode() {

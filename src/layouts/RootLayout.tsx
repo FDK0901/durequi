@@ -13,6 +13,7 @@ const NAV = [
   { to: '/workflows', label: 'Workflows' },
   { to: '/batches', label: 'Batches' },
   { to: '/audit', label: 'Audit' },
+  { to: '/ops', label: 'Operations' },
   { to: '/search', label: 'Search' },
   { to: '/redis', label: 'Redis' },
   { to: '/settings', label: 'Settings' },
