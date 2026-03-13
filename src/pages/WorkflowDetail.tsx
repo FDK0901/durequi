@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import { useWorkflow, useCancelWorkflow, useRetryWorkflow, useWorkflowAuditTrail, useWorkflowTaskResult, useSuspendWorkflow, useResumeWorkflow } from '../hooks';
+import { useWorkflow, useCancelWorkflow, useRetryWorkflow, useWorkflowAuditTrail, useWorkflowTaskResult, useSuspendWorkflow, useResumeWorkflow, useWorkflowSignalStats } from '../hooks';
 import { useSettings } from '../context/useSettings';
 import { timeAgo, formatCountdown } from '../util';
 import { JsonView } from '../components/JsonView';
@@ -704,6 +704,7 @@ export default function WorkflowDetail() {
   const { readOnly } = useSettings();
   const { data: wf, isLoading, error } = useWorkflow(id!);
   const { data: auditTrail } = useWorkflowAuditTrail(id!);
+  const { data: signalStats } = useWorkflowSignalStats(id!);
   const cancelMut = useCancelWorkflow();
   const retryMut = useRetryWorkflow();
   const suspendMut = useSuspendWorkflow();
@@ -837,6 +838,28 @@ export default function WorkflowDetail() {
           )}
         </dl>
       </div>
+
+      {signalStats && (
+        <div className="detail" style={{ marginTop: '1rem' }}>
+          <h3 style={{ marginBottom: '0.5rem' }}>Signal Stats</h3>
+          <dl>
+            <dt>Pending Signals</dt>
+            <dd>{signalStats.pending_count}</dd>
+            {signalStats.pending_count > 0 && (
+              <>
+                <dt>Oldest Unacked</dt>
+                <dd>
+                  {signalStats.oldest_unacked_age_ms < 1000
+                    ? `${signalStats.oldest_unacked_age_ms}ms`
+                    : signalStats.oldest_unacked_age_ms < 60000
+                      ? `${(signalStats.oldest_unacked_age_ms / 1000).toFixed(1)}s`
+                      : `${(signalStats.oldest_unacked_age_ms / 60000).toFixed(1)}m`}
+                </dd>
+              </>
+            )}
+          </dl>
+        </div>
+      )}
 
       <h3>Task Graph</h3>
       <div className="dag-container">

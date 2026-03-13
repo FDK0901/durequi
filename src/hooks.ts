@@ -181,6 +181,16 @@ export function useWorkflowTaskResult(wfId: string, taskName: string) {
   });
 }
 
+export function useWorkflowSignalStats(id: string) {
+  const refetchInterval = useRefetchInterval();
+  return useQuery({
+    queryKey: ['workflowSignalStats', id],
+    queryFn: () => api.getWorkflowSignalStats(id),
+    enabled: !!id,
+    refetchInterval,
+  });
+}
+
 export function useSuspendWorkflow() {
   const qc = useQueryClient();
   return useMutation({

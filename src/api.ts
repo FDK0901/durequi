@@ -564,6 +564,10 @@ export const api = {
     fetchJSON<RunProgress>(`/api/runs/${runId}/progress`),
   getJobProgress: (jobId: string) =>
     fetchJSON<RunProgress>(`/api/jobs/${jobId}/progress`),
+
+  // Workflow signal stats
+  getWorkflowSignalStats: (id: string) =>
+    fetchJSON<SignalStats>(`/api/workflows/${id}/signals/stats`),
 };
 
 // --- Repair / Inspect types ---
@@ -590,4 +594,9 @@ export interface RunProgress {
   progress?: number;
   message?: string;
   details?: unknown;
+}
+
+export interface SignalStats {
+  pending_count: number;
+  oldest_unacked_age_ms: number;
 }
