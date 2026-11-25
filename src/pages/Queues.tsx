@@ -17,8 +17,8 @@ export default function Queues() {
     <div className="page">
       <h2>Queue Management</h2>
       <p className="hint">
-        A worker looks at the queues with a higher weight first. Delayed are retries, jobs whose concurrency key is
-        taken, and jobs of a handler that is at its limit.
+        Workers look at the queues in this order; the weight does not change it. Delayed are retries, jobs whose
+        concurrency key is taken, and jobs of a handler that is at its limit.
       </p>
 
       <table>
