@@ -14,18 +14,29 @@ export interface Job {
   schedule: Schedule;
   retry_policy?: RetryPolicy;
   priority?: number;
-  schedule_to_start_timeout?: number;
+  schedule_to_start_timeout?: string;
+  heartbeat_timeout?: string;
   status: string;
+  /** Attempts of the current execution; a recurring job starts at 0 with every firing. */
   attempt: number;
+  /** Executions that have finished, over the job's whole life (since dureq v0.2.5). */
+  run_count?: number;
+  consecutive_errors?: number;
   last_error?: string;
   last_run_at?: string;
   next_run_at?: string;
   completed_at?: string;
+  paused_at?: string;
+  resume_at?: string;
   tags?: string[];
+  headers?: Record<string, string>;
   unique_key?: string;
   dlq_after?: number;
   workflow_id?: string;
   workflow_task?: string;
+  batch_id?: string;
+  batch_item?: string;
+  batch_role?: string;
   concurrency_keys?: ConcurrencyKey[];
   created_at: string;
   updated_at: string;
@@ -42,15 +53,25 @@ export interface Schedule {
   starts_at?: string;
   ends_at?: string;
   timezone?: string;
+  overlap_policy?: OverlapPolicy;
+  catchup_window?: string;
+  max_backfill_per_tick?: number;
+  jitter?: string;
+  /** A firing that is given up goes to the DLQ instead of ending the job (since dureq v0.2.5). */
+  keep_on_failure?: boolean;
 }
+
+export type OverlapPolicy = 'ALLOW_ALL' | 'SKIP' | 'BUFFER_ONE' | 'BUFFER_ALL' | 'REPLACE';
 
 export interface RetryPolicy {
   max_attempts: number;
-  initial_delay: number;
-  max_delay: number;
+  initial_delay: number; // ns
+  max_delay: number; // ns
   multiplier: number;
   jitter: number;
   non_retryable_errors?: string[];
+  pause_after_err_count?: number;
+  pause_retry_delay?: number; // ns
 }
 
 export interface NodeInfo {
@@ -61,6 +82,7 @@ export interface NodeInfo {
   last_heartbeat: string;
   pool_stats?: PoolStats;
   active_run_ids?: string[];
+  handler_versions?: Record<string, string>;
 }
 
 export interface PoolStats {
@@ -77,6 +99,7 @@ export interface ScheduleEntry {
   job_id: string;
   next_run_at: string;
   schedule: Schedule;
+  last_processed_at?: string;
 }
 
 export interface Stats {
@@ -99,8 +122,11 @@ export interface JobRun {
   error?: string;
   started_at: string;
   finished_at?: string;
-  duration: number;
+  duration: number; // ns
   last_heartbeat_at?: string;
+  progress?: unknown;
+  /** The logical operation this run executes (since dureq v0.2.5). */
+  operation_key?: string;
 }
 
 export interface JobEvent {
@@ -110,9 +136,19 @@ export interface JobEvent {
   node_id?: string;
   task_type?: string;
   error?: string;
-  attempt: number;
+  attempt?: number;
   timestamp: string;
   affected_run_ids?: string[];
+  workflow_id?: string;
+}
+
+export interface DLQMessage {
+  run_id: string;
+  job_id: string;
+  task_type: string;
+  payload?: unknown;
+  attempt: number;
+  metadata?: Record<string, string>;
 }
 
 export interface Precondition {
@@ -264,42 +300,51 @@ export interface BatchItemResult {
   error?: string;
 }
 
-async function fetchJSON<T>(path: string): Promise<T> {
-  const res = await fetch(path);
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`HTTP ${res.status}: ${body}`);
+/** An error response of the API, with the message it carries. */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
   }
-  return res.json();
+}
+
+async function request(path: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(path, init);
+  if (res.ok) return res;
+  const body = await res.text();
+  let message = body || res.statusText;
+  try {
+    message = JSON.parse(body).error ?? message;
+  } catch {
+    // Not JSON, e.g. from a proxy in between.
+  }
+  throw new ApiError(res.status, message);
+}
+
+async function fetchJSON<T>(path: string): Promise<T> {
+  return (await request(path)).json();
 }
 
 async function postAction(path: string): Promise<void> {
-  const res = await fetch(path, { method: 'POST' });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`HTTP ${res.status}: ${body}`);
-  }
+  await request(path, { method: 'POST' });
 }
 
-async function postJSON<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method: 'POST',
+async function sendJSON<T>(method: 'POST' | 'PUT', path: string, body: unknown): Promise<T> {
+  const res = await request(path, {
+    method,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`HTTP ${res.status}: ${text}`);
-  }
   return res.json();
 }
 
+const postJSON = <T>(path: string, body: unknown) => sendJSON<T>('POST', path, body);
+const putJSON = <T>(path: string, body: unknown) => sendJSON<T>('PUT', path, body);
+
 async function deleteAction(path: string): Promise<void> {
-  const res = await fetch(path, { method: 'DELETE' });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`HTTP ${res.status}: ${body}`);
-  }
+  await request(path, { method: 'DELETE' });
 }
 
 export interface Paginated<T> {
@@ -315,25 +360,29 @@ export interface ListParams {
   name?: string;
 }
 
+/** The API filters jobs by one of these; if several are given it takes the first. */
+export interface JobListParams extends ListParams {
+  task_type?: string;
+  tag?: string;
+}
+
+/** The API filters runs by job or by status, not by both. */
 export interface HistoryRunParams {
   limit?: number;
   offset?: number;
   sort?: string;
   status?: string;
   job_id?: string;
-  node_id?: string;
-  task_type?: string;
   since?: string;
   until?: string;
 }
 
 export interface UniqueKeyResult {
-  unique_key: string;
   exists: boolean;
   job_id: string;
 }
 
-function buildQS(params: ListParams): string {
+function buildQS(params: object): string {
   const qs = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
     if (v != null && v !== '') qs.set(k, String(v));
@@ -415,30 +464,18 @@ export interface RedisInfoResponse {
   nodes: RedisNodeInfo[];
 }
 
-async function putJSON<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`HTTP ${res.status}: ${text}`);
-  }
-  return res.json();
-}
-
 export const api = {
   getStats: () => fetchJSON<Stats>('/api/stats'),
-  listJobs: (params: ListParams = {}) =>
+  listJobs: (params: JobListParams = {}) =>
     fetchJSON<Paginated<Job>>(`/api/jobs?${buildQS(params)}`),
   getJob: (id: string) => fetchJSON<Job>(`/api/jobs/${id}`),
   deleteJob: (id: string) => deleteAction(`/api/jobs/${id}`),
-  listNodes: () => fetchJSON<NodeInfo[]>('/api/nodes'),
+  listNodes: () => fetchJSON<NodeInfo[] | null>('/api/nodes'),
+  listActiveRuns: () => fetchJSON<JobRun[] | null>('/api/runs'),
   listSchedules: (params: ListParams = {}) =>
     fetchJSON<Paginated<ScheduleEntry>>(`/api/schedules?${buildQS(params)}`),
   listDLQ: (params: ListParams = {}) =>
-    fetchJSON<Paginated<unknown>>(`/api/dlq?${buildQS(params)}`),
+    fetchJSON<Paginated<DLQMessage>>(`/api/dlq?${buildQS(params)}`),
   cancelJob: (id: string) => postAction(`/api/jobs/${id}/cancel`),
   retryJob: (id: string) => postAction(`/api/jobs/${id}/retry`),
   updateJobPayload: (id: string, payload: unknown) =>
@@ -446,20 +483,10 @@ export const api = {
   health: () => fetchJSON<{ status: string }>('/api/health'),
 
   // History
-  listJobEvents: (jobId: string, limit = 50) =>
-    fetchJSON<JobEvent[]>(`/api/jobs/${jobId}/events?limit=${limit}`),
   listJobRuns: (jobId: string, limit = 50) =>
-    fetchJSON<JobRun[]>(`/api/jobs/${jobId}/runs?limit=${limit}`),
-  listHistoryRuns: (params: HistoryRunParams = {}) => {
-    const qs = new URLSearchParams();
-    for (const [k, v] of Object.entries(params)) {
-      if (v != null && v !== '') qs.set(k, String(v));
-    }
-    return fetchJSON<Paginated<JobRun>>(`/api/history/runs?${qs.toString()}`);
-  },
-  listHistoryEvents: (params: { limit?: number; offset?: number; job_id?: string } = {}) => {
-    return fetchJSON<Paginated<JobEvent>>(`/api/history/events?${buildQS(params)}`);
-  },
+    fetchJSON<JobRun[] | null>(`/api/jobs/${jobId}/runs?limit=${limit}`),
+  listHistoryRuns: (params: HistoryRunParams = {}) =>
+    fetchJSON<Paginated<JobRun>>(`/api/history/runs?${buildQS(params)}`),
 
   // Workflows
   listWorkflows: (params: ListParams = {}) =>
@@ -483,10 +510,10 @@ export const api = {
     fetchJSON<BatchItemResult>(`/api/batches/${id}/results/${itemId}`),
   cancelBatch: (id: string) => postAction(`/api/batches/${id}/cancel`),
   retryBatch: (id: string, retryFailedOnly: boolean) =>
-    postJSON<BatchInstance>(`/api/batches/${id}/retry`, { retry_failed_only: retryFailedOnly }),
+    postJSON<{ status: string }>(`/api/batches/${id}/retry`, { retry_failed_only: retryFailedOnly }),
 
   // Queues
-  listQueues: () => fetchJSON<QueueInfo[]>('/api/queues'),
+  listQueues: () => fetchJSON<QueueInfo[] | null>('/api/queues'),
   pauseQueue: (tierName: string) => postAction(`/api/queues/${tierName}/pause`),
   resumeQueue: (tierName: string) => postAction(`/api/queues/${tierName}/resume`),
 
@@ -520,12 +547,12 @@ export const api = {
     postJSON<{ affected: number }>('/api/batches/bulk/delete', { ids, status }),
 
   // Payload search (JSONPath)
-  searchJobsByPayload: (path: string, value: string) =>
-    fetchJSON<Job>(`/api/search/jobs?path=${encodeURIComponent(path)}&value=${encodeURIComponent(value)}`),
+  searchJobsByPayload: (path: string, value: string, task_type?: string) =>
+    fetchJSON<Job>(`/api/search/jobs?${buildQS({ path, value, task_type })}`),
   searchWorkflowsByPayload: (path: string, value: string) =>
-    fetchJSON<WorkflowInstance>(`/api/search/workflows?path=${encodeURIComponent(path)}&value=${encodeURIComponent(value)}`),
+    fetchJSON<WorkflowInstance>(`/api/search/workflows?${buildQS({ path, value })}`),
   searchBatchesByPayload: (path: string, value: string) =>
-    fetchJSON<BatchInstance>(`/api/search/batches?path=${encodeURIComponent(path)}&value=${encodeURIComponent(value)}`),
+    fetchJSON<BatchInstance>(`/api/search/batches?${buildQS({ path, value })}`),
 
   // Unique keys
   checkUniqueKey: (key: string) =>
@@ -535,11 +562,11 @@ export const api = {
 
   // Audit trail
   getJobAuditTrail: (jobId: string) =>
-    fetchJSON<AuditEntry[]>(`/api/jobs/${jobId}/audit`),
+    fetchJSON<AuditEntry[] | null>(`/api/jobs/${jobId}/audit`),
   getAuditCounts: (ids: string[]) =>
     postJSON<Record<string, number>>('/api/audit/counts', { ids }),
   getWorkflowAuditTrail: (workflowId: string) =>
-    fetchJSON<WorkflowAuditEntry[]>(`/api/workflows/${workflowId}/audit`),
+    fetchJSON<WorkflowAuditEntry[] | null>(`/api/workflows/${workflowId}/audit`),
 
   // Node drain
   getNodeDrainStatus: (nodeId: string) =>
@@ -552,18 +579,16 @@ export const api = {
   getLock: (key: string) =>
     fetchJSON<LockInfo>(`/api/locks/${encodeURIComponent(key)}`),
   forceUnlock: (key: string) =>
-    deleteAction(`/api/locks/${encodeURIComponent(key)}?fencing=true`),
+    deleteAction(`/api/locks/${encodeURIComponent(key)}`),
   getConcurrencyInfo: (key: string) =>
     fetchJSON<ConcurrencyInfo>(`/api/concurrency/${encodeURIComponent(key)}`),
 
   // Groups
-  listGroups: () => fetchJSON<GroupInfo[]>('/api/groups'),
+  listGroups: () => fetchJSON<GroupInfo[] | null>('/api/groups'),
 
-  // Run/Job progress
-  getRunProgress: (runId: string) =>
-    fetchJSON<RunProgress>(`/api/runs/${runId}/progress`),
+  // Progress of a job's active runs
   getJobProgress: (jobId: string) =>
-    fetchJSON<RunProgress>(`/api/jobs/${jobId}/progress`),
+    fetchJSON<RunProgress[]>(`/api/jobs/${jobId}/progress`),
 
   // Workflow signal stats
   getWorkflowSignalStats: (id: string) =>
@@ -575,14 +600,14 @@ export const api = {
 export interface LockInfo {
   key: string;
   owner: string;
-  ttl: number;
+  ttl_seconds: number;
   exists: boolean;
 }
 
 export interface ConcurrencyInfo {
   key: string;
   active_slots: number;
-  active_run_ids: string[];
+  active_run_ids: string[] | null;
 }
 
 export interface GroupInfo {
@@ -591,9 +616,11 @@ export interface GroupInfo {
 }
 
 export interface RunProgress {
-  progress?: number;
-  message?: string;
-  details?: unknown;
+  run_id: string;
+  status: string;
+  last_heartbeat_at?: string;
+  /** Whatever the handler reports; see readProgress. */
+  progress?: unknown;
 }
 
 export interface SignalStats {

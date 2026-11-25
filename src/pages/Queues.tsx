@@ -11,9 +11,15 @@ export default function Queues() {
   if (error) return <div className="error">Error: {error.message}</div>;
   if (!queues || queues.length === 0) return <div className="page"><h2>Queues</h2><p>No queues configured.</p></div>;
 
+  const totalWeight = queues.reduce((n, q) => n + q.weight, 0) || 1;
+
   return (
     <div className="page">
       <h2>Queue Management</h2>
+      <p className="hint">
+        The weight is the share of the work a queue gets while all of them have some. The stream length counts
+        messages that have been processed, too: it is not a backlog.
+      </p>
 
       <table>
         <thead>
@@ -22,7 +28,7 @@ export default function Queues() {
             <th>Weight</th>
             <th>Fetch Batch</th>
             <th>Rate Limit</th>
-            <th>Pending</th>
+            <th>Stream Length</th>
             <th>Status</th>
             {!readOnly && <th>Actions</th>}
           </tr>
@@ -31,7 +37,14 @@ export default function Queues() {
           {queues.map((q) => (
             <tr key={q.name}>
               <td><strong>{q.name}</strong></td>
-              <td>{q.weight}</td>
+              <td>
+                <div className="progress-inline">
+                  <div className="progress-bar-sm">
+                    <div className="progress-fill-sm" style={{ width: `${(q.weight / totalWeight) * 100}%`, background: 'var(--accent)' }} />
+                  </div>
+                  <span>{q.weight}</span>
+                </div>
+              </td>
               <td>{q.fetch_batch}</td>
               <td>{q.rate_limit ? `${q.rate_limit}/s (burst: ${q.rate_burst ?? q.rate_limit})` : '-'}</td>
               <td>{q.size}</td>

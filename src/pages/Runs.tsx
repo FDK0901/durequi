@@ -1,26 +1,23 @@
 import { useState, useMemo } from 'react';
-import { useHistoryRuns } from '../hooks';
-import { timeAgo } from '../util';
+import { useNavigate } from 'react-router';
+import { useActiveRuns, useHistoryRuns } from '../hooks';
+import { formatNs, mergeRuns, outcomeOf, timeAgo } from '../util';
 import { Pagination, SortSelect } from '../components/Pagination';
+import { RunDrawer } from '../components/RunDrawer';
+import { NodeLanes } from '../components/charts/NodeLanes';
+import type { JobRun } from '../api';
 
-const PAGE_SIZE = 30;
+const PAGE_SIZE = 50;
 
-const STATUSES = ['', 'succeeded', 'failed', 'running'];
-
-function formatDuration(ns: number): string {
-  if (!ns) return '-';
-  const ms = ns / 1_000_000;
-  if (ms < 1000) return `${Math.round(ms)}ms`;
-  return `${(ms / 1000).toFixed(2)}s`;
-}
+const STATUSES = ['', 'succeeded', 'failed', 'timed_out', 'cancelled'];
 
 export default function Runs() {
   const [offset, setOffset] = useState(0);
   const [statusFilter, setStatusFilter] = useState('');
   const [jobIdFilter, setJobIdFilter] = useState('');
-  const [nodeIdFilter, setNodeIdFilter] = useState('');
-  const [taskTypeFilter, setTaskTypeFilter] = useState('');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [picked, setPicked] = useState<JobRun | null>(null);
+  const navigate = useNavigate();
 
   const params = useMemo(
     () => ({
@@ -29,14 +26,18 @@ export default function Runs() {
       sort: sortOrder,
       status: statusFilter || undefined,
       job_id: jobIdFilter || undefined,
-      node_id: nodeIdFilter || undefined,
-      task_type: taskTypeFilter || undefined,
     }),
-    [offset, sortOrder, statusFilter, jobIdFilter, nodeIdFilter, taskTypeFilter],
+    [offset, sortOrder, statusFilter, jobIdFilter],
   );
 
   const { data, isLoading, error } = useHistoryRuns(params);
-  const runs = data?.data ?? [];
+  const { data: activeRuns } = useActiveRuns();
+  const active = (activeRuns ?? []).filter((r) => !jobIdFilter || r.job_id === jobIdFilter);
+  // The API goes by the job alone if one is given. And by "failed" it also finds runs
+  // that failed at first: their retry went on under the same ID.
+  const found = data?.data ?? [];
+  const runs = statusFilter ? found.filter((r) => r.status === statusFilter) : found;
+  const recovered = statusFilter === 'failed' ? found.filter((r) => outcomeOf(r) === 'recovered').length : 0;
   const total = data?.total ?? 0;
 
   if (isLoading) return <div className="loading">Loading...</div>;
@@ -55,24 +56,6 @@ export default function Runs() {
             setOffset(0);
           }}
         />
-        <input
-          type="text"
-          placeholder="Filter by Node ID..."
-          value={nodeIdFilter}
-          onChange={(e) => {
-            setNodeIdFilter(e.target.value);
-            setOffset(0);
-          }}
-        />
-        <input
-          type="text"
-          placeholder="Filter by Task Type..."
-          value={taskTypeFilter}
-          onChange={(e) => {
-            setTaskTypeFilter(e.target.value);
-            setOffset(0);
-          }}
-        />
         <select
           value={statusFilter}
           onChange={(e) => {
@@ -88,6 +71,17 @@ export default function Runs() {
         </select>
         <SortSelect value={sortOrder} onChange={(v) => { setSortOrder(v); setOffset(0); }} />
       </div>
+
+      {recovered > 0 && (
+        <p className="hint">{recovered} on this page failed at first and succeeded when retried. They are left out.</p>
+      )}
+
+      {!statusFilter && sortOrder === 'newest' && offset === 0 && runs.length + active.length > 0 && (
+        <div className="chart-section">
+          <div className="chart-header"><h3>Runs by Node</h3></div>
+          <NodeLanes runs={mergeRuns(active, runs)} onRun={setPicked} />
+        </div>
+      )}
 
       {runs.length === 0 ? (
         <div className="empty-state">
@@ -112,15 +106,17 @@ export default function Runs() {
             </thead>
             <tbody>
               {runs.map((r) => (
-                <tr key={r.id}>
+                <tr key={r.id} className="clickable" onClick={() => setPicked(r)}>
                   <td className="mono">{r.id.substring(0, 12)}...</td>
-                  <td className="mono">{r.job_id.substring(0, 12)}...</td>
+                  <td className="mono" onClick={(e) => e.stopPropagation()}>
+                    <span className="link" onClick={() => navigate(`/jobs/${r.job_id}`)}>{r.job_id.substring(0, 12)}...</span>
+                  </td>
                   <td>{r.node_id}</td>
                   <td>
                     <span className={`badge badge-${r.status}`}>{r.status}</span>
                   </td>
                   <td>{r.attempt}</td>
-                  <td>{formatDuration(r.duration)}</td>
+                  <td>{formatNs(r.duration)}</td>
                   <td>{timeAgo(r.started_at)}</td>
                   <td className="error-cell">{r.error ?? '-'}</td>
                 </tr>
@@ -131,6 +127,7 @@ export default function Runs() {
           <Pagination offset={offset} limit={PAGE_SIZE} total={total} onOffsetChange={setOffset} />
         </>
       )}
+      {picked && <RunDrawer run={picked} onClose={() => setPicked(null)} />}
     </div>
   );
 }

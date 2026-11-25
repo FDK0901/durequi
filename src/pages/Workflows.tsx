@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useWorkflows, useCancelWorkflow, useRetryWorkflow, useBulkCancelWorkflows, useBulkRetryWorkflows, useBulkDeleteWorkflows } from '../hooks';
 import { useSettings } from '../context/useSettings';
 import { timeAgo } from '../util';
 import { Pagination, SortSelect } from '../components/Pagination';
 
-const STATUSES = ['', 'pending', 'running', 'completed', 'failed', 'cancelled'];
+const STATUSES = ['', 'pending', 'running', 'suspended', 'completed', 'failed', 'cancelled'];
 const PAGE_SIZE = 10;
 
 function isTerminal(status: string): boolean {
@@ -13,7 +13,9 @@ function isTerminal(status: string): boolean {
 }
 
 export default function Workflows() {
-  const [filter, setFilter] = useState('');
+  const [params, setParams] = useSearchParams();
+  const filter = params.get('status') ?? '';
+  const setFilter = (status: string) => setParams(status ? { status } : {}, { replace: true });
   const [nameFilter, setNameFilter] = useState('');
   const [offset, setOffset] = useState(0);
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');

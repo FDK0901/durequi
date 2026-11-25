@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
-import { useJobs, useCancelJob, useRetryJob, useBulkCancelJobs, useBulkRetryJobs, useBulkDeleteJobs, useAuditCounts } from '../hooks';
+import { useNavigate, useSearchParams } from 'react-router';
+import { useJobs, useActiveRuns, useCancelJob, useRetryJob, useBulkCancelJobs, useBulkRetryJobs, useBulkDeleteJobs, useAuditCounts } from '../hooks';
 import { useSettings } from '../context/useSettings';
-import { timeAgo } from '../util';
+import { isRetryable, isTerminal, timeAgo } from '../util';
+import { CopyId } from '../components/CopyId';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { Pagination, SortSelect } from '../components/Pagination';
 
@@ -10,33 +11,32 @@ const STATUSES = [
   '',
   'pending',
   'scheduled',
-  'running',
   'completed',
   'failed',
   'retrying',
+  'paused',
   'dead',
   'cancelled',
 ];
 
 const PAGE_SIZE = 10;
 
-function isTerminal(status: string): boolean {
-  return ['completed', 'dead', 'cancelled'].includes(status);
-}
-
-function copyToClipboard(text: string) {
-  navigator.clipboard.writeText(text);
-}
-
 export default function Jobs() {
-  const [filter, setFilter] = useState('');
+  // The API filters by one of these at a time.
+  const [params, setParams] = useSearchParams();
+  const filter = params.get('status') ?? '';
+  const taskType = params.get('task_type') ?? '';
+  const tag = params.get('tag') ?? '';
   const [offset, setOffset] = useState(0);
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
-  const { readOnly } = useSettings();
+  const { readOnly, showPayload } = useSettings();
+  const { data: activeRuns } = useActiveRuns();
   const { data, isLoading, error } = useJobs({
     status: filter || undefined,
+    task_type: taskType || undefined,
+    tag: tag || undefined,
     limit: PAGE_SIZE,
     offset,
     sort: sortOrder,
@@ -51,6 +51,14 @@ export default function Jobs() {
   const total = data?.total ?? 0;
   const jobIds = jobs.map((j) => j.id);
   const { data: auditCounts } = useAuditCounts(jobIds);
+
+  const running = new Set(activeRuns?.map((r) => r.job_id));
+
+  function filterBy(key: 'status' | 'task_type' | 'tag', value: string) {
+    setParams(value ? { [key]: value } : {}, { replace: true });
+    setOffset(0);
+    setSelected(new Set());
+  }
 
   const allSelected = jobs.length > 0 && jobs.every((j) => selected.has(j.id));
 
@@ -79,13 +87,25 @@ export default function Jobs() {
     <div className="page">
       <div className="toolbar">
         <h2>Jobs</h2>
-        <select value={filter} onChange={(e) => { setFilter(e.target.value); setOffset(0); setSelected(new Set()); }}>
+        <select value={filter} onChange={(e) => filterBy('status', e.target.value)}>
           {STATUSES.map((s) => (
             <option key={s} value={s}>
               {s || 'all'}
             </option>
           ))}
         </select>
+        <input
+          type="text"
+          placeholder="or by exact task type..."
+          value={taskType}
+          onChange={(e) => filterBy('task_type', e.target.value)}
+        />
+        <input
+          type="text"
+          placeholder="or by exact tag..."
+          value={tag}
+          onChange={(e) => filterBy('tag', e.target.value)}
+        />
         <SortSelect value={sortOrder} onChange={(v) => { setSortOrder(v); setOffset(0); }} />
       </div>
 
@@ -95,7 +115,12 @@ export default function Jobs() {
           <span className="bulk-count">{selectedIds.length} selected</span>
           <button
             className="btn btn-sm btn-danger"
-            onClick={() => { bulkCancel.mutate({ ids: selectedIds }); setSelected(new Set()); }}
+            onClick={() => {
+              if (confirm(`Cancel ${selectedIds.length} job(s)?`)) {
+                bulkCancel.mutate({ ids: selectedIds });
+                setSelected(new Set());
+              }
+            }}
             disabled={bulkCancel.isPending}
           >
             Cancel Selected
@@ -127,7 +152,11 @@ export default function Jobs() {
         <div className="bulk-toolbar">
           <button
             className="btn btn-sm btn-danger"
-            onClick={() => bulkCancel.mutate({ ids: [], status: filter })}
+            onClick={() => {
+              if (confirm(`Cancel ${filter} jobs, up to 100 at a time?`)) {
+                bulkCancel.mutate({ ids: [], status: filter });
+              }
+            }}
             disabled={bulkCancel.isPending}
           >
             Cancel All {filter}
@@ -142,7 +171,7 @@ export default function Jobs() {
           <button
             className="btn btn-sm btn-danger"
             onClick={() => {
-              if (confirm(`Delete all ${filter} jobs?`)) {
+              if (confirm(`Delete ${filter} jobs, up to 100 at a time?`)) {
                 bulkDelete.mutate({ ids: [], status: filter });
               }
             }}
@@ -167,6 +196,7 @@ export default function Jobs() {
             <th>Status</th>
             <th>Schedule</th>
             <th>Attempt</th>
+            <th>Runs</th>
             <th>Audit</th>
             <th>Updated</th>
             {!readOnly && <th>Actions</th>}
@@ -184,23 +214,20 @@ export default function Jobs() {
                   />
                 </td>
               )}
-              <td className="mono id-cell">
-                <span title={j.id}>{j.id.substring(0, 12)}...</span>
-                <button
-                  className="btn-copy"
-                  onClick={(e) => { e.stopPropagation(); copyToClipboard(j.id); }}
-                  title="Copy ID"
-                >
-                  &nbsp;
-                </button>
+              <td><CopyId id={j.id} /></td>
+              <td>
+                {j.task_type}
+                {j.unique_key && <span className="sub">{j.unique_key}</span>}
+                {showPayload && j.payload != null && <span className="sub mono payload">{JSON.stringify(j.payload)}</span>}
               </td>
-              <td>{j.task_type}</td>
               <td><PriorityBadge priority={j.priority} /></td>
               <td>
                 <span className={`badge badge-${j.status}`}>{j.status}</span>
+                {running.has(j.id) && <span className="sub">running</span>}
               </td>
               <td>{j.schedule.type}</td>
               <td>{j.attempt}</td>
+              <td>{j.run_count ?? '-'}</td>
               <td>{auditCounts?.[j.id] ?? '-'}</td>
               <td>{timeAgo(j.updated_at)}</td>
               {!readOnly && (
@@ -214,7 +241,7 @@ export default function Jobs() {
                       Cancel
                     </button>
                   )}
-                  {(j.status === 'failed' || j.status === 'dead') && (
+                  {isRetryable(j.status) && (
                     <button
                       className="btn btn-sm"
                       onClick={() => retryMut.mutate(j.id)}
@@ -229,7 +256,7 @@ export default function Jobs() {
           ))}
           {jobs.length === 0 && (
             <tr>
-              <td colSpan={readOnly ? 9 : 10} className="empty">
+              <td colSpan={readOnly ? 9 : 11} className="empty">
                 No jobs found
               </td>
             </tr>

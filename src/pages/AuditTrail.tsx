@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useJobAuditTrail } from '../hooks';
 import { timeAgo } from '../util';
+import { StateTimeline } from '../components/charts/StateTimeline';
 
 export default function AuditTrail() {
   const [jobId, setJobId] = useState('');
@@ -47,6 +48,7 @@ export default function AuditTrail() {
             {entries && <span style={{ marginLeft: '1rem' }}>{entries.length} entries</span>}
           </div>
 
+          {entries && entries.length > 0 && <StateTimeline entries={entries} />}
           {entries && entries.length > 0 ? (
             <table>
               <thead>

@@ -3,7 +3,7 @@
  * No external dependencies required.
  */
 
-import type { JSX } from "react";
+import { Fragment, type JSX } from "react";
 
 function highlightJSON(value: unknown, indent = 0): JSX.Element[] {
   const pad = '  '.repeat(indent);
@@ -26,7 +26,7 @@ function highlightJSON(value: unknown, indent = 0): JSX.Element[] {
       elements.push(<br key={key++} />);
       value.forEach((item, i) => {
         elements.push(<span key={key++}>{pad}{'  '}</span>);
-        elements.push(...highlightJSON(item, indent + 1));
+        elements.push(<Fragment key={key++}>{highlightJSON(item, indent + 1)}</Fragment>);
         if (i < value.length - 1) {
           elements.push(<span key={key++} className="json-comma">,</span>);
         }
@@ -46,7 +46,7 @@ function highlightJSON(value: unknown, indent = 0): JSX.Element[] {
         elements.push(<span key={key++}>{pad}{'  '}</span>);
         elements.push(<span key={key++} className="json-key">"{k}"</span>);
         elements.push(<span key={key++} className="json-comma">: </span>);
-        elements.push(...highlightJSON(v, indent + 1));
+        elements.push(<Fragment key={key++}>{highlightJSON(v, indent + 1)}</Fragment>);
         if (i < entries.length - 1) {
           elements.push(<span key={key++} className="json-comma">,</span>);
         }

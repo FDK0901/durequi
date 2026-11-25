@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useBatches, useCancelBatch, useBulkCancelBatches, useBulkRetryBatches, useBulkDeleteBatches } from '../hooks';
 import { useSettings } from '../context/useSettings';
 import { timeAgo } from '../util';
@@ -14,7 +14,9 @@ function isTerminal(status: string): boolean {
 }
 
 export default function Batches() {
-  const [filter, setFilter] = useState('');
+  const [params, setParams] = useSearchParams();
+  const filter = params.get('status') ?? '';
+  const setFilter = (status: string) => setParams(status ? { status } : {}, { replace: true });
   const [nameFilter, setNameFilter] = useState('');
   const [offset, setOffset] = useState(0);
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');

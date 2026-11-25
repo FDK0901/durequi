@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router';
 import '../App.css';
 import { useWebSocketStatus } from '../context/useWebsocketStatus';
+import { Toasts } from '../components/Toasts';
 
 const NAV = [
   { to: '/', label: 'Dashboard', end: true },
@@ -67,6 +68,7 @@ export default function RootLayout() {
       <main className="content">
         <Outlet />
       </main>
+      <Toasts />
     </div>
   );
 }

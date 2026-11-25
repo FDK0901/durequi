@@ -1,13 +1,39 @@
+/*
+ * Each token has a light and a dark value; light-dark() picks one by the color-scheme,
+ * which the theme setting fixes or leaves to the system. The outcome colors (ok, retry,
+ * bad, accent) can be told apart with a color vision deficiency; red and green cannot.
+ */
 :root {
+  color-scheme: light dark;
+  --plane: light-dark(#f4f5fa, #0f1117);
+  --surface: light-dark(#ffffff, #161822);
+  --raised: light-dark(#eceef6, #1e2030);
+  --line: light-dark(#dcdfeb, #2a2d3e);
+  --ink: light-dark(#171923, #e8eaf0);
+  --ink-2: light-dark(#3a3f55, #c0c4d6);
+  --ink-3: light-dark(#666b83, #8b8fa3);
+  --accent: light-dark(#4a55d9, #7c8aff);
+  --accent-hover: light-dark(#3f49c4, #6b7bff);
+  --on-accent: light-dark(#ffffff, #0e0f14);
+  --ok: light-dark(#00957a, #00a888);
+  --retry: light-dark(#c98200, #d28e05);
+  --bad: light-dark(#d63334, #dc3c3d);
+  --bad-text: light-dark(#b92426, #f87171);
+  --hold: light-dark(#6a4ce2, #9887ef);
+  --off: light-dark(#8a8fa6, #6b7088);
+
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color: #e0e0e0;
-  background-color: #0f1117;
+  color: var(--ink-2);
+  background-color: var(--plane);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
+
+:root[data-theme='light'] { color-scheme: light; }
+:root[data-theme='dark'] { color-scheme: dark; }
 
 * {
   box-sizing: border-box;

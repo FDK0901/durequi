@@ -1,18 +1,24 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, type ListParams, type HistoryRunParams } from './api';
+import { useQuery, useQueries, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { api, type ListParams, type JobListParams, type HistoryRunParams } from './api';
 
 import { useWebSocketStatus } from './context/useWebsocketStatus';
 import { useSettings } from './context/useSettings';
 
+/** For data that events announce: no polling while the WebSocket is live. */
 function useRefetchInterval() {
   const { refreshInterval } = useSettings();
   const { status } = useWebSocketStatus();
-  if (status === 'connected') return false; // WS live — no polling
-  return refreshInterval || false; // fallback polling
+  if (status === 'connected') return false;
+  return refreshInterval || false;
+}
+
+/** For data that changes without an event, such as heartbeats, queues and progress. */
+function usePollInterval() {
+  return useSettings().refreshInterval || false;
 }
 
 export function useStats() {
-  const refetchInterval = useRefetchInterval();
+  const refetchInterval = usePollInterval();
   return useQuery({
     queryKey: ['stats'],
     queryFn: api.getStats,
@@ -20,12 +26,27 @@ export function useStats() {
   });
 }
 
-export function useJobs(params: ListParams = {}) {
+export function useJobs(params: JobListParams = {}) {
   const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: ['jobs', params],
     queryFn: () => api.listJobs(params),
     refetchInterval,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Jobs by ID, for the rows of a list that only has the IDs. */
+export function useJobsById(ids: string[]) {
+  const refetchInterval = useRefetchInterval();
+  return useQueries({
+    queries: ids.map((id) => ({
+      queryKey: ['job', id],
+      queryFn: () => api.getJob(id),
+      refetchInterval,
+      retry: false,
+    })),
+    combine: (results) => new Map(results.flatMap((res) => (res.data ? [[res.data.id, res.data] as const] : []))),
   });
 }
 
@@ -47,39 +68,54 @@ export function useJobRuns(jobId: string, limit = 50) {
   });
 }
 
-export function useJobEvents(jobId: string, limit = 50) {
+/** Recent runs, newest first, by job ID. */
+export function useRunsOfJobs(ids: string[], limit = 100) {
   const refetchInterval = useRefetchInterval();
+  return useQueries({
+    queries: ids.map((id) => ({
+      queryKey: ['jobRuns', id, limit],
+      queryFn: () => api.listJobRuns(id, limit),
+      refetchInterval,
+    })),
+    combine: (results) => new Map(results.map((res, i) => [ids[i], res.data ?? []])),
+  });
+}
+
+export function useActiveRuns() {
+  const refetchInterval = usePollInterval();
   return useQuery({
-    queryKey: ['jobEvents', jobId, limit],
-    queryFn: () => api.listJobEvents(jobId, limit),
+    queryKey: ['activeRuns'],
+    queryFn: async () => (await api.listActiveRuns()) ?? [],
     refetchInterval,
   });
 }
 
 export function useNodes() {
-  const refetchInterval = useRefetchInterval();
+  const refetchInterval = usePollInterval();
   return useQuery({
     queryKey: ['nodes'],
-    queryFn: api.listNodes,
+    queryFn: async () => (await api.listNodes()) ?? [],
     refetchInterval,
   });
 }
 
 export function useSchedules(params: ListParams = {}) {
-  const refetchInterval = useRefetchInterval();
+  const refetchInterval = usePollInterval();
   return useQuery({
     queryKey: ['schedules', params],
     queryFn: () => api.listSchedules(params),
     refetchInterval,
+    placeholderData: keepPreviousData,
   });
 }
 
 export function useDLQ(params: ListParams = {}) {
-  const refetchInterval = useRefetchInterval();
+  const refetchInterval = usePollInterval();
   return useQuery({
     queryKey: ['dlq', params],
     queryFn: () => api.listDLQ(params),
     refetchInterval,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -89,6 +125,7 @@ export function useWorkflows(params: ListParams = {}) {
     queryKey: ['workflows', params],
     queryFn: () => api.listWorkflows(params),
     refetchInterval,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -107,48 +144,53 @@ export function useHistoryRuns(params: HistoryRunParams = {}) {
     queryKey: ['historyRuns', params],
     queryFn: () => api.listHistoryRuns(params),
     refetchInterval,
+    placeholderData: keepPreviousData,
   });
 }
 
-export function useHistoryEvents(params: { limit?: number; offset?: number; job_id?: string } = {}) {
-  const refetchInterval = useRefetchInterval();
-  return useQuery({
-    queryKey: ['historyEvents', params],
-    queryFn: () => api.listHistoryEvents(params),
-    refetchInterval,
-  });
+/** Invalidates whatever shows jobs, after one of them has been changed. */
+function useInvalidateJobs() {
+  const qc = useQueryClient();
+  return () => {
+    for (const key of ['jobs', 'job', 'jobAudit', 'jobRuns', 'schedules', 'activeRuns', 'uniqueKey', 'dlq', 'stats']) {
+      qc.invalidateQueries({ queryKey: [key] });
+    }
+  };
 }
 
 export function useCancelJob() {
-  const qc = useQueryClient();
+  const onSuccess = useInvalidateJobs();
   return useMutation({
     mutationFn: (id: string) => api.cancelJob(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['jobs'] });
-      qc.invalidateQueries({ queryKey: ['stats'] });
-    },
+    onSuccess,
+    meta: { done: 'Job cancelled' },
   });
 }
 
 export function useRetryJob() {
-  const qc = useQueryClient();
+  const onSuccess = useInvalidateJobs();
   return useMutation({
     mutationFn: (id: string) => api.retryJob(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['jobs'] });
-      qc.invalidateQueries({ queryKey: ['stats'] });
-    },
+    onSuccess,
+    meta: { done: 'Job retried' },
   });
 }
 
 export function useDeleteJob() {
-  const qc = useQueryClient();
+  const onSuccess = useInvalidateJobs();
   return useMutation({
     mutationFn: (id: string) => api.deleteJob(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['jobs'] });
-      qc.invalidateQueries({ queryKey: ['stats'] });
-    },
+    onSuccess,
+    meta: { done: 'Job deleted' },
+  });
+}
+
+export function useUpdateJobPayload() {
+  const onSuccess = useInvalidateJobs();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: unknown }) => api.updateJobPayload(id, payload),
+    onSuccess,
+    meta: { done: 'Payload saved' },
   });
 }
 
@@ -158,7 +200,9 @@ export function useCancelWorkflow() {
     mutationFn: (id: string) => api.cancelWorkflow(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['workflows'] });
+      qc.invalidateQueries({ queryKey: ['workflow'] });
     },
+    meta: { done: 'Workflow cancelled' },
   });
 }
 
@@ -168,7 +212,9 @@ export function useRetryWorkflow() {
     mutationFn: (id: string) => api.retryWorkflow(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['workflows'] });
+      qc.invalidateQueries({ queryKey: ['workflow'] });
     },
+    meta: { done: 'Workflow retried' },
   });
 }
 
@@ -182,7 +228,7 @@ export function useWorkflowTaskResult(wfId: string, taskName: string) {
 }
 
 export function useWorkflowSignalStats(id: string) {
-  const refetchInterval = useRefetchInterval();
+  const refetchInterval = usePollInterval();
   return useQuery({
     queryKey: ['workflowSignalStats', id],
     queryFn: () => api.getWorkflowSignalStats(id),
@@ -199,6 +245,7 @@ export function useSuspendWorkflow() {
       qc.invalidateQueries({ queryKey: ['workflows'] });
       qc.invalidateQueries({ queryKey: ['workflow'] });
     },
+    meta: { done: 'Workflow suspended' },
   });
 }
 
@@ -210,6 +257,7 @@ export function useResumeWorkflow() {
       qc.invalidateQueries({ queryKey: ['workflows'] });
       qc.invalidateQueries({ queryKey: ['workflow'] });
     },
+    meta: { done: 'Workflow resumed' },
   });
 }
 
@@ -221,6 +269,7 @@ export function useBatches(params: ListParams = {}) {
     queryKey: ['batches', params],
     queryFn: () => api.listBatches(params),
     refetchInterval,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -250,6 +299,7 @@ export function useCancelBatch() {
       qc.invalidateQueries({ queryKey: ['batches'] });
       qc.invalidateQueries({ queryKey: ['batch'] });
     },
+    meta: { done: 'Batch cancelled' },
   });
 }
 
@@ -262,16 +312,17 @@ export function useRetryBatch() {
       qc.invalidateQueries({ queryKey: ['batches'] });
       qc.invalidateQueries({ queryKey: ['batch'] });
     },
+    meta: { done: 'Batch retried' },
   });
 }
 
 // --- Queues ---
 
 export function useQueues() {
-  const refetchInterval = useRefetchInterval();
+  const refetchInterval = usePollInterval();
   return useQuery({
     queryKey: ['queues'],
-    queryFn: api.listQueues,
+    queryFn: async () => (await api.listQueues()) ?? [],
     refetchInterval,
   });
 }
@@ -281,6 +332,7 @@ export function usePauseQueue() {
   return useMutation({
     mutationFn: (tierName: string) => api.pauseQueue(tierName),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['queues'] }),
+    meta: { done: 'Queue paused' },
   });
 }
 
@@ -289,6 +341,7 @@ export function useResumeQueue() {
   return useMutation({
     mutationFn: (tierName: string) => api.resumeQueue(tierName),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['queues'] }),
+    meta: { done: 'Queue resumed' },
   });
 }
 
@@ -300,6 +353,7 @@ export function useDailyStats(days = 30) {
     queryKey: ['dailyStats', days],
     queryFn: () => api.getDailyStats(days),
     refetchInterval,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -315,7 +369,7 @@ export function useRedisInfo() {
 // --- Sync Retries ---
 
 export function useSyncRetries() {
-  const refetchInterval = useRefetchInterval();
+  const refetchInterval = usePollInterval();
   return useQuery({
     queryKey: ['syncRetries'],
     queryFn: api.getSyncRetries,
@@ -325,115 +379,52 @@ export function useSyncRetries() {
 
 // --- Bulk Operations ---
 
-export function useBulkCancelJobs() {
+type BulkVars = { ids: string[]; status?: string };
+
+function useBulk(
+  keys: string[],
+  what: string,
+  mutationFn: (v: BulkVars) => Promise<{ affected: number }>,
+) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ ids, status }: { ids: string[]; status?: string }) =>
-      api.bulkCancelJobs(ids, status),
+    mutationFn,
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['jobs'] });
-      qc.invalidateQueries({ queryKey: ['stats'] });
+      for (const key of keys) qc.invalidateQueries({ queryKey: [key] });
+    },
+    meta: {
+      done: (res: unknown, vars: unknown) => {
+        const { affected } = res as { affected: number };
+        const asked = (vars as BulkVars).ids.length;
+        const skipped = asked > affected ? `; ${asked - affected} skipped` : '';
+        return `${affected} ${what}${skipped}`;
+      },
     },
   });
 }
 
-export function useBulkRetryJobs() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ ids, status }: { ids: string[]; status?: string }) =>
-      api.bulkRetryJobs(ids, status),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['jobs'] });
-      qc.invalidateQueries({ queryKey: ['stats'] });
-    },
-  });
-}
+const JOB_KEYS = ['jobs', 'job', 'schedules', 'activeRuns', 'stats'];
+const WORKFLOW_KEYS = ['workflows', 'workflow', 'stats'];
+const BATCH_KEYS = ['batches', 'batch', 'stats'];
 
-export function useBulkDeleteJobs() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ ids, status }: { ids: string[]; status?: string }) =>
-      api.bulkDeleteJobs(ids, status),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['jobs'] });
-      qc.invalidateQueries({ queryKey: ['stats'] });
-    },
-  });
-}
+export const useBulkCancelJobs = () => useBulk(JOB_KEYS, 'cancelled', (v) => api.bulkCancelJobs(v.ids, v.status));
+export const useBulkRetryJobs = () => useBulk(JOB_KEYS, 'retried', (v) => api.bulkRetryJobs(v.ids, v.status));
+export const useBulkDeleteJobs = () => useBulk(JOB_KEYS, 'deleted', (v) => api.bulkDeleteJobs(v.ids, v.status));
 
-// --- Bulk Workflow Operations ---
+export const useBulkCancelWorkflows = () => useBulk(WORKFLOW_KEYS, 'cancelled', (v) => api.bulkCancelWorkflows(v.ids, v.status));
+export const useBulkRetryWorkflows = () => useBulk(WORKFLOW_KEYS, 'retried', (v) => api.bulkRetryWorkflows(v.ids, v.status));
+export const useBulkDeleteWorkflows = () => useBulk(WORKFLOW_KEYS, 'deleted', (v) => api.bulkDeleteWorkflows(v.ids, v.status));
 
-export function useBulkCancelWorkflows() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ ids, status }: { ids: string[]; status?: string }) =>
-      api.bulkCancelWorkflows(ids, status),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['workflows'] }),
-  });
-}
-
-export function useBulkRetryWorkflows() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ ids, status }: { ids: string[]; status?: string }) =>
-      api.bulkRetryWorkflows(ids, status),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['workflows'] }),
-  });
-}
-
-export function useBulkDeleteWorkflows() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ ids, status }: { ids: string[]; status?: string }) =>
-      api.bulkDeleteWorkflows(ids, status),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['workflows'] }),
-  });
-}
-
-// --- Bulk Batch Operations ---
-
-export function useBulkCancelBatches() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ ids, status }: { ids: string[]; status?: string }) =>
-      api.bulkCancelBatches(ids, status),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['batches'] });
-      qc.invalidateQueries({ queryKey: ['batch'] });
-    },
-  });
-}
-
-export function useBulkRetryBatches() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ ids, status }: { ids: string[]; status?: string }) =>
-      api.bulkRetryBatches(ids, status),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['batches'] });
-      qc.invalidateQueries({ queryKey: ['batch'] });
-    },
-  });
-}
-
-export function useBulkDeleteBatches() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ ids, status }: { ids: string[]; status?: string }) =>
-      api.bulkDeleteBatches(ids, status),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['batches'] });
-      qc.invalidateQueries({ queryKey: ['batch'] });
-    },
-  });
-}
+export const useBulkCancelBatches = () => useBulk(BATCH_KEYS, 'cancelled', (v) => api.bulkCancelBatches(v.ids, v.status));
+export const useBulkRetryBatches = () => useBulk(BATCH_KEYS, 'retried', (v) => api.bulkRetryBatches(v.ids, v.status));
+export const useBulkDeleteBatches = () => useBulk(BATCH_KEYS, 'deleted', (v) => api.bulkDeleteBatches(v.ids, v.status));
 
 // --- Payload Search ---
 
-export function useSearchJobsByPayload(path: string, value: string) {
+export function useSearchJobsByPayload(path: string, value: string, taskType?: string) {
   return useQuery({
-    queryKey: ['searchJobs', path, value],
-    queryFn: () => api.searchJobsByPayload(path, value),
+    queryKey: ['searchJobs', path, value, taskType],
+    queryFn: () => api.searchJobsByPayload(path, value, taskType),
     enabled: !!path && !!value,
     retry: false,
   });
@@ -475,16 +466,19 @@ export function useDeleteUniqueKey() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['uniqueKey'] });
     },
+    meta: { done: 'Unique key deleted' },
   });
 }
 
 // --- Audit Trail ---
 
 export function useJobAuditTrail(jobId: string) {
+  const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: ['jobAudit', jobId],
-    queryFn: () => api.getJobAuditTrail(jobId),
+    queryFn: async () => (await api.getJobAuditTrail(jobId)) ?? [],
     enabled: !!jobId,
+    refetchInterval,
   });
 }
 
@@ -500,7 +494,7 @@ export function useWorkflowAuditTrail(workflowId: string) {
   const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: ['workflowAudit', workflowId],
-    queryFn: () => api.getWorkflowAuditTrail(workflowId),
+    queryFn: async () => (await api.getWorkflowAuditTrail(workflowId)) ?? [],
     enabled: !!workflowId,
     refetchInterval,
   });
@@ -516,6 +510,7 @@ export function useRequeueRun() {
       qc.invalidateQueries({ queryKey: ['historyRuns'] });
       qc.invalidateQueries({ queryKey: ['stats'] });
     },
+    meta: { done: 'Run requeued' },
   });
 }
 
@@ -533,11 +528,12 @@ export function useForceUnlock() {
   return useMutation({
     mutationFn: (key: string) => api.forceUnlock(key),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['lock'] }),
+    meta: { done: 'Lock removed' },
   });
 }
 
 export function useConcurrencyInfo(key: string) {
-  const refetchInterval = useRefetchInterval();
+  const refetchInterval = usePollInterval();
   return useQuery({
     queryKey: ['concurrency', key],
     queryFn: () => api.getConcurrencyInfo(key),
@@ -548,27 +544,16 @@ export function useConcurrencyInfo(key: string) {
 }
 
 export function useGroups() {
-  const refetchInterval = useRefetchInterval();
+  const refetchInterval = usePollInterval();
   return useQuery({
     queryKey: ['groups'],
-    queryFn: api.listGroups,
+    queryFn: async () => (await api.listGroups()) ?? [],
     refetchInterval,
-  });
-}
-
-export function useRunProgress(runId: string) {
-  const refetchInterval = useRefetchInterval();
-  return useQuery({
-    queryKey: ['runProgress', runId],
-    queryFn: () => api.getRunProgress(runId),
-    enabled: !!runId,
-    refetchInterval,
-    retry: false,
   });
 }
 
 export function useJobProgress(jobId: string) {
-  const refetchInterval = useRefetchInterval();
+  const refetchInterval = usePollInterval();
   return useQuery({
     queryKey: ['jobProgress', jobId],
     queryFn: () => api.getJobProgress(jobId),
@@ -580,11 +565,25 @@ export function useJobProgress(jobId: string) {
 
 // --- Node Drain ---
 
+/** The IDs of the nodes, out of those given, that are draining. */
+export function useDrainingNodes(nodeIds: string[]) {
+  const refetchInterval = usePollInterval();
+  return useQueries({
+    queries: nodeIds.map((id) => ({
+      queryKey: ['nodeDrain', id],
+      queryFn: () => api.getNodeDrainStatus(id),
+      refetchInterval,
+    })),
+    combine: (results) => new Set(results.flatMap((res) => (res.data?.draining ? [res.data.node_id] : []))),
+  });
+}
+
 export function useDrainNode() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (nodeId: string) => api.drainNode(nodeId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['nodes'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['nodeDrain'] }),
+    meta: { done: 'Node is draining' },
   });
 }
 
@@ -592,6 +591,7 @@ export function useUndrainNode() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (nodeId: string) => api.undrainNode(nodeId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['nodes'] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['nodeDrain'] }),
+    meta: { done: 'Node takes work again' },
   });
 }

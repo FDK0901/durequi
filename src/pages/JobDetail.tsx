@@ -1,12 +1,81 @@
-import { useParams, useNavigate } from 'react-router';
-import { useJob, useCancelJob, useRetryJob, useJobAuditTrail, useJobProgress } from '../hooks';
+import { useState } from 'react';
+import { Link, useParams, useNavigate } from 'react-router';
+import { useJob, useCancelJob, useRetryJob, useDeleteJob, useUpdateJobPayload, useJobAuditTrail, useJobProgress, useJobRuns, useActiveRuns, useCheckUniqueKey } from '../hooks';
 import { useSettings } from '../context/useSettings';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { JsonView } from '../components/JsonView';
-import { timeAgo } from '../util';
+import { Progress } from '../components/Progress';
+import { RunDrawer } from '../components/RunDrawer';
+import { RetryLadder } from '../components/charts/RetryLadder';
+import { RunDurations } from '../components/charts/RunDurations';
+import { StateTimeline } from '../components/charts/StateTimeline';
+import { describeOverlap, describeSchedule, formatNs, isRecurring, isRetryable, isTerminal, mergeRuns, outcomeOf, retryPolicyOf, timeAgo } from '../util';
+import type { Job, JobRun } from '../api';
 
-function isTerminal(status: string): boolean {
-  return ['completed', 'dead', 'cancelled'].includes(status);
+const AUDIT_ROWS = 20;
+
+/** Who holds the unique key of a job, which decides whether it can be retried. */
+function UniqueKey({ job }: { job: Job }) {
+  const { data: key } = useCheckUniqueKey(job.unique_key!);
+  return (
+    <>
+      <span className="mono">{job.unique_key}</span>
+      {key && (
+        <span className="sub">
+          {!key.exists ? (
+            isRetryable(job.status) ? 'Free. A retry takes it back, if no other job has it by then.' : 'Free: another job can be enqueued under it.'
+          ) : key.job_id === job.id ? (
+            'Held by this job.'
+          ) : (
+            <>
+              Held by <Link className="link" to={`/jobs/${key.job_id}`}>another job</Link>
+              {isRetryable(job.status) && ', so that a retry of this one is refused'}.
+            </>
+          )}
+        </span>
+      )}
+    </>
+  );
+}
+
+function Payload({ job }: { job: Job }) {
+  const { readOnly } = useSettings();
+  const update = useUpdateJobPayload();
+  const [draft, setDraft] = useState<string | null>(null);
+  const [invalid, setInvalid] = useState('');
+
+  function save() {
+    try {
+      update.mutate({ id: job.id, payload: JSON.parse(draft!) }, { onSuccess: () => setDraft(null) });
+      setInvalid('');
+    } catch (e) {
+      setInvalid((e as Error).message);
+    }
+  }
+
+  return (
+    <>
+      <h3>Payload</h3>
+      {draft == null ? (
+        <>
+          <JsonView data={job.payload} />
+          {!readOnly && !isTerminal(job.status) && (
+            <button className="btn btn-sm" style={{ marginTop: '0.5rem' }} onClick={() => setDraft(JSON.stringify(job.payload, null, 2))}>
+              Edit Payload
+            </button>
+          )}
+        </>
+      ) : (
+        <>
+          <textarea rows={Math.min(20, draft.split('\n').length + 1)} value={draft} onChange={(e) => setDraft(e.target.value)} aria-label="Payload" />
+          {invalid && <p className="error-text">Not valid JSON: {invalid}</p>}
+          <p className="hint">Runs from now on get the new payload, not one that has been dispatched already.</p>
+          <button className="btn btn-sm btn-primary" onClick={save} disabled={update.isPending}>Save Payload</button>{' '}
+          <button className="btn btn-sm" onClick={() => { setDraft(null); setInvalid(''); }}>Discard</button>
+        </>
+      )}
+    </>
+  );
 }
 
 export default function JobDetail() {
@@ -16,12 +85,22 @@ export default function JobDetail() {
   const { data: job, isLoading, error } = useJob(id!);
   const { data: auditTrail } = useJobAuditTrail(id!);
   const { data: progress } = useJobProgress(id!);
+  const { data: runs } = useJobRuns(id!);
+  const { data: activeRuns } = useActiveRuns();
   const cancelMut = useCancelJob();
   const retryMut = useRetryJob();
+  const deleteMut = useDeleteJob();
+  const [picked, setPicked] = useState<JobRun | null>(null);
 
   if (isLoading) return <div className="loading">Loading...</div>;
   if (error) return <div className="error">Error: {error.message}</div>;
   if (!job) return <div className="error">Job not found</div>;
+
+  const recurring = isRecurring(job.schedule);
+  const { policy, own, limit } = retryPolicyOf(job);
+  const allRuns = mergeRuns(activeRuns?.filter((r) => r.job_id === job.id) ?? [], runs ?? []);
+  const finished = allRuns.filter((r) => outcomeOf(r) !== 'running');
+  const running = allRuns.length - finished.length;
 
   return (
     <div className="page">
@@ -39,13 +118,24 @@ export default function JobDetail() {
                 Cancel
               </button>
             )}
-            {(job.status === 'failed' || job.status === 'dead') && (
+            {isRetryable(job.status) && (
               <button
                 className="btn"
                 onClick={() => retryMut.mutate(job.id)}
                 disabled={retryMut.isPending}
               >
                 Retry
+              </button>
+            )}
+            {isTerminal(job.status) && (
+              <button
+                className="btn btn-danger"
+                onClick={() => {
+                  if (confirm('Delete this job?')) deleteMut.mutate(job.id, { onSuccess: () => navigate('/jobs') });
+                }}
+                disabled={deleteMut.isPending}
+              >
+                Delete
               </button>
             )}
           </div>
@@ -59,13 +149,52 @@ export default function JobDetail() {
           <dt>TaskType</dt>
           <dd>{job.task_type}</dd>
           <dt>Status</dt>
-          <dd><span className={`badge badge-${job.status}`}>{job.status}</span></dd>
+          <dd>
+            <span className={`badge badge-${job.status}`}>{job.status}</span>
+            {running > 0 && <> {running} running</>}
+          </dd>
           <dt>Priority</dt>
           <dd><PriorityBadge priority={job.priority} /></dd>
           <dt>Schedule</dt>
-          <dd>{job.schedule.type}</dd>
+          <dd>
+            {describeSchedule(job.schedule)}
+            {job.schedule.timezone && ` (${job.schedule.timezone})`}
+            {recurring && (
+              <span className="sub">
+                {describeOverlap(job.schedule)}
+                {job.schedule.catchup_window && `, missed firings are made up for within ${job.schedule.catchup_window}`}
+                {job.schedule.jitter && `, jitter of up to ${job.schedule.jitter}`}
+              </span>
+            )}
+          </dd>
+          {(job.schedule.starts_at || job.schedule.ends_at) && (
+            <>
+              <dt>Period</dt>
+              <dd>
+                {job.schedule.starts_at && `from ${new Date(job.schedule.starts_at).toLocaleString()} `}
+                {job.schedule.ends_at && `until ${new Date(job.schedule.ends_at).toLocaleString()}`}
+              </dd>
+            </>
+          )}
           <dt>Attempt</dt>
-          <dd>{job.attempt}</dd>
+          <dd>
+            {job.attempt} of {limit}
+            {recurring && <span className="sub">of the current firing</span>}
+          </dd>
+          <dt>Runs</dt>
+          <dd>
+            {job.run_count ?? '-'}
+            {(job.consecutive_errors ?? 0) > 0 && <span className="sub">{job.consecutive_errors} failed in a row</span>}
+          </dd>
+          {job.paused_at && job.status === 'paused' && (
+            <>
+              <dt>Paused</dt>
+              <dd>
+                {timeAgo(job.paused_at)}
+                <span className="sub">{job.resume_at ? `resumes at ${new Date(job.resume_at).toLocaleString()}` : 'until it is resumed'}</span>
+              </dd>
+            </>
+          )}
           {job.last_error && (
             <>
               <dt>Last Error</dt>
@@ -99,7 +228,7 @@ export default function JobDetail() {
           {job.unique_key && (
             <>
               <dt>Unique Key</dt>
-              <dd className="mono">{job.unique_key}</dd>
+              <dd><UniqueKey job={job} /></dd>
             </>
           )}
           {job.workflow_id && (
@@ -111,6 +240,33 @@ export default function JobDetail() {
                 </a>
                 {job.workflow_task && <> / {job.workflow_task}</>}
               </dd>
+            </>
+          )}
+          {job.batch_id && (
+            <>
+              <dt>Batch</dt>
+              <dd className="mono">
+                <Link className="link" to={`/batches/${job.batch_id}`}>{job.batch_id}</Link>
+                {job.batch_item && <> / {job.batch_item}</>}
+              </dd>
+            </>
+          )}
+          {job.headers && Object.keys(job.headers).length > 0 && (
+            <>
+              <dt>Headers</dt>
+              <dd className="mono">{Object.entries(job.headers).map(([k, v]) => <div key={k}>{k}: {v}</div>)}</dd>
+            </>
+          )}
+          {job.heartbeat_timeout && (
+            <>
+              <dt>Heartbeat Timeout</dt>
+              <dd>{job.heartbeat_timeout}</dd>
+            </>
+          )}
+          {job.schedule_to_start_timeout && (
+            <>
+              <dt>Start Timeout</dt>
+              <dd>{job.schedule_to_start_timeout}</dd>
             </>
           )}
           {job.concurrency_keys && job.concurrency_keys.length > 0 && (
@@ -131,50 +287,84 @@ export default function JobDetail() {
           <dd>{new Date(job.updated_at).toLocaleString()}</dd>
         </dl>
 
-        {progress && progress.progress != null && (
-          <>
+        {progress?.map((p) => p.progress != null && (
+          <div key={p.run_id}>
             <h3>Progress</h3>
-            <div className="progress-bar" style={{ marginBottom: '0.5rem' }}>
-              <div
-                className="progress-fill progress-success"
-                style={{ width: `${Math.min(progress.progress, 100)}%` }}
-              />
-            </div>
-            <div className="progress-stats">
-              <span>{progress.progress}%</span>
-              {progress.message && <span>{progress.message}</span>}
-            </div>
+            <Progress value={p.progress} />
+          </div>
+        ))}
+
+        {allRuns.length > 0 && (
+          <>
+            <h3>Runs</h3>
+            {finished.length > 1 && (
+              <div className="chart-section">
+                <RunDurations runs={finished} onRun={setPicked} />
+              </div>
+            )}
+            <table>
+              <thead>
+                <tr>
+                  <th>Run ID</th>
+                  <th>Node</th>
+                  <th>Status</th>
+                  <th>Attempt</th>
+                  <th>Duration</th>
+                  <th>Started</th>
+                  <th>Error</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allRuns.slice(0, 15).map((r) => (
+                  <tr key={r.id} className="clickable" onClick={() => setPicked(r)}>
+                    <td className="mono">{r.id.substring(0, 12)}...</td>
+                    <td>{r.node_id}</td>
+                    <td><span className={`badge badge-${r.status}`}>{r.status}</span></td>
+                    <td>{r.attempt}</td>
+                    <td>{formatNs(r.duration)}</td>
+                    <td>{timeAgo(r.started_at)}</td>
+                    <td className="error-cell">{r.error ?? '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </>
         )}
 
-        {job.retry_policy && (
-          <>
-            <h3>Retry Policy</h3>
-            <dl>
-              <dt>Max Attempts</dt>
-              <dd>{job.retry_policy.max_attempts}</dd>
-              <dt>Multiplier</dt>
-              <dd>{job.retry_policy.multiplier}</dd>
-              {job.retry_policy.non_retryable_errors && job.retry_policy.non_retryable_errors.length > 0 && (
-                <>
-                  <dt>Non-Retryable Errors</dt>
-                  <dd>{job.retry_policy.non_retryable_errors.join(', ')}</dd>
-                </>
-              )}
-            </dl>
-          </>
+        <h3>Retry Policy</h3>
+        <RetryLadder job={job} active={running > 0} />
+        {!own && <p className="hint">The job has no policy of its own. This is the default; its handler may have another one.</p>}
+        {own && (
+          <dl>
+            <dt>Max Attempts</dt>
+            <dd>{policy.max_attempts}{job.dlq_after != null && ` (DLQ after ${job.dlq_after})`}</dd>
+            <dt>Multiplier</dt>
+            <dd>{policy.multiplier}</dd>
+            {(policy.pause_after_err_count ?? 0) > 0 && (
+              <>
+                <dt>Pause</dt>
+                <dd>
+                  after {policy.pause_after_err_count} errors in a row
+                  {policy.pause_retry_delay ? `, for ${formatNs(policy.pause_retry_delay)}` : ''}
+                </dd>
+              </>
+            )}
+            {policy.non_retryable_errors && policy.non_retryable_errors.length > 0 && (
+              <>
+                <dt>Non-Retryable Errors</dt>
+                <dd>{policy.non_retryable_errors.join(', ')}</dd>
+              </>
+            )}
+          </dl>
         )}
 
-        {job.payload != null && (
-          <>
-            <h3>Payload</h3>
-            <JsonView data={job.payload} />
-          </>
-        )}
+        {job.payload != null && <Payload key={job.id} job={job} />}
 
         {auditTrail && auditTrail.length > 0 && (
           <>
             <h3>Audit Trail</h3>
+            <StateTimeline entries={auditTrail} />
+            {auditTrail.length > AUDIT_ROWS && <p className="hint">The last {AUDIT_ROWS} of {auditTrail.length} entries. The Audit page has all of them.</p>}
             <table>
               <thead>
                 <tr>
@@ -184,7 +374,7 @@ export default function JobDetail() {
                 </tr>
               </thead>
               <tbody>
-                {auditTrail.map((entry) => (
+                {[...auditTrail].reverse().slice(0, AUDIT_ROWS).map((entry) => (
                   <tr key={entry.id}>
                     <td>{timeAgo(entry.timestamp)}</td>
                     <td><span className={`badge badge-${entry.status}`}>{entry.status}</span></td>
@@ -196,6 +386,7 @@ export default function JobDetail() {
           </>
         )}
       </div>
+      {picked && <RunDrawer run={picked} onClose={() => setPicked(null)} />}
     </div>
   );
 }

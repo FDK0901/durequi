@@ -5,6 +5,7 @@ import { timeAgo, formatCountdown } from '../util';
 import { JsonView } from '../components/JsonView';
 import type { BatchInstance, BatchItemResult } from '../api';
 import { PriorityBadge } from '../components/PriorityBadge';
+import { ItemGrid } from '../components/charts/ItemGrid';
 
 function ProgressBar({ batch }: { batch: BatchInstance }) {
   const done = batch.completed_items + batch.failed_items;
@@ -80,7 +81,7 @@ export default function BatchDetail() {
   if (!batch) return <div className="error">Batch not found</div>;
 
   const isActive = batch.status === 'pending' || batch.status === 'running';
-  const itemEntries = Object.values(batch.item_states);
+  const itemEntries = Object.values(batch.item_states ?? {}).sort((a, b) => a.item_id.localeCompare(b.item_id, undefined, { numeric: true }));
 
   return (
     <div className="page">
@@ -213,6 +214,7 @@ export default function BatchDetail() {
       )}
 
       <h3>Items ({itemEntries.length})</h3>
+      {itemEntries.length > 0 && <div className="chart-section"><ItemGrid items={itemEntries} /></div>}
       <table>
         <thead>
           <tr>

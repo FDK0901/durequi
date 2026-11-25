@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { useSearchJobsByPayload, useSearchWorkflowsByPayload, useSearchBatchesByPayload, useCheckUniqueKey, useDeleteUniqueKey } from '../hooks';
+import { useSearchJobsByPayload, useSearchWorkflowsByPayload, useSearchBatchesByPayload, useCheckUniqueKey, useDeleteUniqueKey, useJobsById } from '../hooks';
 import { useSettings } from '../context/useSettings';
 
 type SearchTarget = 'jobs' | 'workflows' | 'batches';
@@ -16,6 +16,8 @@ export default function Search() {
   const [submittedPath, setSubmittedPath] = useState('');
   const [submittedValue, setSubmittedValue] = useState('');
   const [submittedTarget, setSubmittedTarget] = useState<SearchTarget>('jobs');
+  const [taskType, setTaskType] = useState('');
+  const [submittedTaskType, setSubmittedTaskType] = useState('');
 
   // Unique key state
   const [uniqueKey, setUniqueKey] = useState('');
@@ -24,6 +26,7 @@ export default function Search() {
   const jobResult = useSearchJobsByPayload(
     submittedTarget === 'jobs' ? submittedPath : '',
     submittedTarget === 'jobs' ? submittedValue : '',
+    submittedTaskType || undefined,
   );
   const wfResult = useSearchWorkflowsByPayload(
     submittedTarget === 'workflows' ? submittedPath : '',
@@ -36,12 +39,15 @@ export default function Search() {
 
   const uniqueKeyResult = useCheckUniqueKey(submittedKey);
   const deleteUniqueKey = useDeleteUniqueKey();
+  const holderId = uniqueKeyResult.data?.exists ? uniqueKeyResult.data.job_id : '';
+  const holder = useJobsById(holderId ? [holderId] : []).get(holderId);
 
   function handlePayloadSearch(e: React.FormEvent) {
     e.preventDefault();
     setSubmittedPath(jsonPath);
     setSubmittedValue(searchValue);
     setSubmittedTarget(target);
+    setSubmittedTaskType(target === 'jobs' ? taskType.trim() : '');
   }
 
   function handleUniqueKeySearch(e: React.FormEvent) {
@@ -54,7 +60,7 @@ export default function Search() {
   return (
     <div className="page">
       <h2>Payload Search</h2>
-      <p className="hint">Search jobs, workflows, or batches by JSONPath in their payload. Example path: <code>user.email</code></p>
+      <p className="hint">Search jobs, workflows, or batches by JSONPath in their payload. Example path: <code>user.email</code>. Finds the newest match, whatever its status. Needs RedisJSON.</p>
 
       <form onSubmit={handlePayloadSearch} className="search-form">
         <select value={target} onChange={(e) => setTarget(e.target.value as SearchTarget)}>
@@ -76,6 +82,14 @@ export default function Search() {
           onChange={(e) => setSearchValue(e.target.value)}
           required
         />
+        {target === 'jobs' && (
+          <input
+            type="text"
+            placeholder="Task type (optional)"
+            value={taskType}
+            onChange={(e) => setTaskType(e.target.value)}
+          />
+        )}
         <button className="btn btn-primary" type="submit">Search</button>
       </form>
 
@@ -120,7 +134,7 @@ export default function Search() {
       <hr style={{ margin: '2rem 0' }} />
 
       <h2>Unique Key Lookup</h2>
-      <p className="hint">Check if a deduplication key exists and which job it maps to.</p>
+      <p className="hint">Check who holds a deduplication key. A job keeps its key until it goes dead, is cancelled or is deleted; a completed one keeps it, too.</p>
 
       <form onSubmit={handleUniqueKeySearch} className="search-form">
         <input
@@ -144,12 +158,13 @@ export default function Search() {
                   <th>Key</th>
                   <th>Exists</th>
                   <th>Job ID</th>
+                  <th>Job Status</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td className="mono">{uniqueKeyResult.data.unique_key}</td>
+                  <td className="mono">{submittedKey}</td>
                   <td>
                     <span className={`badge ${uniqueKeyResult.data.exists ? 'badge-running' : 'badge-cancelled'}`}>
                       {uniqueKeyResult.data.exists ? 'Yes' : 'No'}
@@ -163,11 +178,14 @@ export default function Search() {
                     ) : '-'}
                   </td>
                   <td>
+                    {holder ? <span className={`badge badge-${holder.status}`}>{holder.status}</span> : holderId ? 'no such job' : '-'}
+                  </td>
+                  <td>
                     {!readOnly && uniqueKeyResult.data.exists && (
                       <button
                         className="btn btn-sm btn-danger"
                         onClick={() => {
-                          if (confirm(`Delete unique key "${submittedKey}"?`)) {
+                          if (confirm(`Delete unique key "${submittedKey}"? Another job can then be enqueued next to the one that holds it.`)) {
                             deleteUniqueKey.mutate(submittedKey);
                           }
                         }}

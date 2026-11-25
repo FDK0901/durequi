@@ -42,14 +42,14 @@ function LockInspector() {
                 <dt>Owner</dt>
                 <dd className="mono">{lock.owner}</dd>
                 <dt>TTL</dt>
-                <dd>{lock.ttl}s</dd>
+                <dd>{lock.ttl_seconds}s</dd>
               </>
             )}
           </dl>
           {!readOnly && lock.exists && (
             <button
               className="btn btn-danger"
-              onClick={() => unlockMut.mutate(lock.key)}
+              onClick={() => { if (confirm('Remove this lock? Whoever holds it goes on without it.')) unlockMut.mutate(lock.key); }}
               disabled={unlockMut.isPending}
               style={{ marginTop: '0.5rem' }}
             >
@@ -97,7 +97,7 @@ function ConcurrencyInspector() {
           </dl>
           {info.active_run_ids && info.active_run_ids.length > 0 && (
             <>
-              <h4 style={{ color: '#c0c4d6', fontSize: '0.85rem', marginTop: '0.75rem' }}>Active Runs</h4>
+              <h4 style={{ color: 'var(--ink-2)', fontSize: '0.85rem', marginTop: '0.75rem' }}>Active Runs</h4>
               <table>
                 <thead>
                   <tr>

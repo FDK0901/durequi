@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { useWorkflow, useCancelWorkflow, useRetryWorkflow, useWorkflowAuditTrail, useWorkflowTaskResult, useSuspendWorkflow, useResumeWorkflow, useWorkflowSignalStats } from '../hooks';
 import { useSettings } from '../context/useSettings';
-import { timeAgo, formatCountdown } from '../util';
+import { useNow } from '../context/useNow';
+import { timeAgo, formatCountdown, formatMs } from '../util';
 import { JsonView } from '../components/JsonView';
 import type { WorkflowInstance, WorkflowTaskDef, WorkflowTaskState } from '../api';
 
@@ -159,28 +160,29 @@ const NODE_H = 54;
 const LAYER_GAP = 80;
 const COL_GAP = 44;
 
+/** The states of the tasks. Their names are the keys; the states often come without them. */
+function tasksOf(wf: WorkflowInstance) {
+  return Object.entries(wf.tasks ?? {}).map(([name, state]) => ({ ...state, name }));
+}
+
+function isActive(wf: WorkflowInstance): boolean {
+  return wf.status === 'pending' || wf.status === 'running' || wf.status === 'suspended';
+}
+
 function statusColor(status: string): string {
   switch (status) {
-    case 'completed': return '#4ade80';
-    case 'running': return '#60a5fa';
-    case 'failed': case 'dead': return '#f87171';
-    case 'cancelled': return '#8b8fa3';
-    case 'paused': case 'suspended': return '#c084fc';
-    case 'continued': return '#22d3ee';
-    default: return '#fbbf24';
+    case 'completed': return 'var(--ok)';
+    case 'running': return 'var(--accent)';
+    case 'failed': case 'dead': return 'var(--bad)';
+    case 'cancelled': return 'var(--off)';
+    case 'paused': case 'suspended': return 'var(--hold)';
+    case 'continued': return 'var(--accent)';
+    default: return 'var(--retry)';
   }
 }
 
 function statusBg(status: string): string {
-  switch (status) {
-    case 'completed': return '#0a3622';
-    case 'running': return '#0c2d5e';
-    case 'failed': case 'dead': return '#3b1114';
-    case 'cancelled': return '#1e2030';
-    case 'paused': case 'suspended': return '#2d1b4e';
-    case 'continued': return '#0c3544';
-    default: return '#3b2f08';
-  }
+  return `color-mix(in srgb, ${statusColor(status)} 18%, var(--surface))`;
 }
 
 function typeIcon(type?: string): string {
@@ -222,13 +224,13 @@ function DagGraph({ wf, onNodeClick, selectedTask }: { wf: WorkflowInstance; onN
     <svg width={svgW + 20} height={svgH} className="dag-svg">
       <defs>
         <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-          <path d="M0,0 L8,3 L0,6 Z" fill="#5a5e72" />
+          <path d="M0,0 L8,3 L0,6 Z" fill="var(--ink-3)" />
         </marker>
         <marker id="arrow-cond" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-          <path d="M0,0 L8,3 L0,6 Z" fill="#c084fc" />
+          <path d="M0,0 L8,3 L0,6 Z" fill="var(--hold)" />
         </marker>
         <marker id="arrow-result" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-          <path d="M0,0 L8,3 L0,6 Z" fill="#22d3ee" />
+          <path d="M0,0 L8,3 L0,6 Z" fill="var(--accent)" />
         </marker>
       </defs>
 
@@ -243,7 +245,7 @@ function DagGraph({ wf, onNodeClick, selectedTask }: { wf: WorkflowInstance; onN
         const x2 = p2.x + NODE_W / 2 + 10;
         const y2 = p2.y;
 
-        const edgeColor = isResultFrom ? '#22d3ee' : isConditionRoute ? '#c084fc' : '#5a5e72';
+        const edgeColor = isResultFrom ? 'var(--accent)' : isConditionRoute ? 'var(--hold)' : 'var(--ink-3)';
         const dashArray = isBackEdge ? '6,3' : undefined;
         const markerEnd = isResultFrom ? 'url(#arrow-result)' : isConditionRoute ? 'url(#arrow-cond)' : 'url(#arrow)';
 
@@ -316,8 +318,8 @@ function DagGraph({ wf, onNodeClick, selectedTask }: { wf: WorkflowInstance; onN
         const isSkipped = n.state.skipped;
         const isSelected = selectedTask === n.name;
         const displayStatus = isSkipped ? 'skipped' : n.state.status;
-        const nodeStroke = isSkipped ? '#8b8fa3' : statusColor(n.state.status);
-        const nodeFill = isSkipped ? '#1e2030' : statusBg(n.state.status);
+        const nodeStroke = isSkipped ? 'var(--ink-3)' : statusColor(n.state.status);
+        const nodeFill = isSkipped ? 'var(--raised)' : statusBg(n.state.status);
         const strokeW = isSelected ? 3 : 1.5;
 
         return (
@@ -362,7 +364,7 @@ function DagGraph({ wf, onNodeClick, selectedTask }: { wf: WorkflowInstance; onN
               <text
                 x={x + 6}
                 y={y + 14}
-                fill="#fbbf24"
+                fill="var(--retry)"
                 fontSize={9}
                 fontWeight={700}
               >
@@ -373,16 +375,16 @@ function DagGraph({ wf, onNodeClick, selectedTask }: { wf: WorkflowInstance; onN
             {/* Error indicator */}
             {n.state.error && (
               <>
-                <circle cx={x + NODE_W - 6} cy={y + 6} r={7} fill="#3b1114" stroke="#f87171" strokeWidth={1} />
-                <text x={x + NODE_W - 6} y={y + 10} textAnchor="middle" fill="#f87171" fontSize={9} fontWeight={700}>!</text>
+                <circle cx={x + NODE_W - 6} cy={y + 6} r={7} fill="var(--surface)" stroke="var(--bad)" strokeWidth={1} />
+                <text x={x + NODE_W - 6} y={y + 10} textAnchor="middle" fill="var(--bad)" fontSize={9} fontWeight={700}>!</text>
               </>
             )}
 
             {/* Priority badge */}
             {hasPriority && !n.state.error && (
               <>
-                <circle cx={x + NODE_W - 8} cy={y + 10} r={8} fill="#3b2f08" stroke="#fbbf24" strokeWidth={1} />
-                <text x={x + NODE_W - 8} y={y + 14} textAnchor="middle" fill="#fbbf24" fontSize={9} fontWeight={700}>
+                <circle cx={x + NODE_W - 8} cy={y + 10} r={8} fill="var(--surface)" stroke="var(--retry)" strokeWidth={1} />
+                <text x={x + NODE_W - 8} y={y + 14} textAnchor="middle" fill="var(--retry)" fontSize={9} fontWeight={700}>
                   {n.def.priority}
                 </text>
               </>
@@ -393,7 +395,7 @@ function DagGraph({ wf, onNodeClick, selectedTask }: { wf: WorkflowInstance; onN
               x={x + NODE_W / 2}
               y={y + 22}
               textAnchor="middle"
-              fill={isSkipped ? '#8b8fa3' : '#e8eaf0'}
+              fill={isSkipped ? 'var(--ink-3)' : 'var(--ink)'}
               fontSize={12}
               fontWeight={600}
             >
@@ -405,7 +407,7 @@ function DagGraph({ wf, onNodeClick, selectedTask }: { wf: WorkflowInstance; onN
               x={x + NODE_W / 2}
               y={y + 38}
               textAnchor="middle"
-              fill={isSkipped ? '#8b8fa3' : statusColor(n.state.status)}
+              fill="var(--ink-2)"
               fontSize={10}
             >
               {displayStatus}
@@ -418,10 +420,10 @@ function DagGraph({ wf, onNodeClick, selectedTask }: { wf: WorkflowInstance; onN
                 x={x + NODE_W / 2}
                 y={y + NODE_H + 12}
                 textAnchor="middle"
-                fill="#8b8fa3"
+                fill="var(--ink-3)"
                 fontSize={9}
               >
-                {formatDurationMs(new Date(n.state.finished_at).getTime() - new Date(n.state.started_at).getTime())}
+                {formatMs(new Date(n.state.finished_at).getTime() - new Date(n.state.started_at).getTime())}
               </text>
             )}
           </g>
@@ -431,16 +433,11 @@ function DagGraph({ wf, onNodeClick, selectedTask }: { wf: WorkflowInstance; onN
   );
 }
 
-function formatDurationMs(ms: number): string {
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
-  return `${(ms / 60000).toFixed(1)}m`;
-}
-
 // --- Execution Timeline ---
 
 function ExecutionTimeline({ wf }: { wf: WorkflowInstance }) {
-  const tasks = Object.values(wf.tasks ?? {});
+  const now = useNow();
+  const tasks = tasksOf(wf);
   const withTimes = tasks.filter(t => t.started_at);
   if (withTimes.length === 0) return null;
 
@@ -450,7 +447,7 @@ function ExecutionTimeline({ wf }: { wf: WorkflowInstance }) {
     return times;
   });
   const minTime = Math.min(...allTimes);
-  const maxTime = Math.max(...allTimes, Date.now());
+  const maxTime = Math.max(...allTimes, isActive(wf) ? now : 0);
   const totalSpan = maxTime - minTime || 1;
 
   const BAR_H = 24;
@@ -466,11 +463,11 @@ function ExecutionTimeline({ wf }: { wf: WorkflowInstance }) {
   return (
     <svg width={SVG_W} height={SVG_H} className="dag-svg" style={{ marginTop: 8 }}>
       {/* Time axis */}
-      <line x1={LABEL_W} y1={0} x2={LABEL_W} y2={SVG_H - 20} stroke="#2a2d3d" strokeWidth={1} />
-      <text x={LABEL_W} y={SVG_H - 4} fill="#8b8fa3" fontSize={9}>
+      <line x1={LABEL_W} y1={0} x2={LABEL_W} y2={SVG_H - 20} stroke="var(--line)" strokeWidth={1} />
+      <text x={LABEL_W} y={SVG_H - 4} fill="var(--ink-3)" fontSize={9}>
         {new Date(minTime).toLocaleTimeString()}
       </text>
-      <text x={LABEL_W + CHART_W} y={SVG_H - 4} fill="#8b8fa3" fontSize={9} textAnchor="end">
+      <text x={LABEL_W + CHART_W} y={SVG_H - 4} fill="var(--ink-3)" fontSize={9} textAnchor="end">
         {new Date(maxTime).toLocaleTimeString()}
       </text>
 
@@ -481,8 +478,8 @@ function ExecutionTimeline({ wf }: { wf: WorkflowInstance }) {
         const gTime = new Date(minTime + frac * totalSpan);
         return (
           <g key={`grid-${i}`}>
-            <line x1={gx} y1={0} x2={gx} y2={SVG_H - 20} stroke="#2a2d3d" strokeWidth={0.5} strokeDasharray="4,4" />
-            <text x={gx} y={SVG_H - 4} fill="#5a5e72" fontSize={8} textAnchor="middle">
+            <line x1={gx} y1={0} x2={gx} y2={SVG_H - 20} stroke="var(--line)" strokeWidth={0.5} strokeDasharray="4,4" />
+            <text x={gx} y={SVG_H - 4} fill="var(--ink-3)" fontSize={8} textAnchor="middle">
               {gTime.toLocaleTimeString()}
             </text>
           </g>
@@ -494,11 +491,11 @@ function ExecutionTimeline({ wf }: { wf: WorkflowInstance }) {
         const startPct = (new Date(t.started_at!).getTime() - minTime) / totalSpan;
         const endPct = t.finished_at
           ? (new Date(t.finished_at).getTime() - minTime) / totalSpan
-          : (Date.now() - minTime) / totalSpan;
+          : (maxTime - minTime) / totalSpan;
         const barX = LABEL_W + startPct * CHART_W;
         const barW = Math.max((endPct - startPct) * CHART_W, 2);
         const dur = t.finished_at
-          ? formatDurationMs(new Date(t.finished_at).getTime() - new Date(t.started_at!).getTime())
+          ? formatMs(new Date(t.finished_at).getTime() - new Date(t.started_at!).getTime())
           : 'running';
 
         return (
@@ -507,7 +504,7 @@ function ExecutionTimeline({ wf }: { wf: WorkflowInstance }) {
               x={LABEL_W - 6}
               y={y + BAR_H / 2 + 4}
               textAnchor="end"
-              fill="#e8eaf0"
+              fill="var(--ink)"
               fontSize={11}
             >
               {t.name}
@@ -541,11 +538,11 @@ function ExecutionTimeline({ wf }: { wf: WorkflowInstance }) {
               x={barX + barW / 2}
               y={y + BAR_H / 2 + 4}
               textAnchor="middle"
-              fill="#e8eaf0"
+              fill="var(--ink)"
               fontSize={10}
             >
               {t.status}
-              {t.started_at && t.finished_at && ` (${formatDurationMs(new Date(t.finished_at).getTime() - new Date(t.started_at).getTime())})`}
+              {t.started_at && t.finished_at && ` (${formatMs(new Date(t.finished_at).getTime() - new Date(t.started_at).getTime())})`}
             </text>
           </g>
         );
@@ -566,7 +563,7 @@ function TaskDetailSidebar({ wf, taskName, onClose }: { wf: WorkflowInstance; ta
   if (!state) return null;
 
   const duration = state.started_at && state.finished_at
-    ? formatDurationMs(new Date(state.finished_at).getTime() - new Date(state.started_at).getTime())
+    ? formatMs(new Date(state.finished_at).getTime() - new Date(state.started_at).getTime())
     : null;
 
   return (
@@ -686,7 +683,7 @@ function TaskDetailSidebar({ wf, taskName, onClose }: { wf: WorkflowInstance; ta
         </button>
       ) : taskResult ? (
         <div style={{ marginTop: '1rem' }}>
-          <h4 style={{ color: '#c0c4d6', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Output</h4>
+          <h4 style={{ color: 'var(--ink-2)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Output</h4>
           <JsonView data={taskResult.output} />
         </div>
       ) : (
@@ -716,8 +713,9 @@ export default function WorkflowDetail() {
   if (error) return <div className="error">Error: {error.message}</div>;
   if (!wf) return <div className="error">Workflow not found</div>;
 
-  const taskEntries = Object.values(wf.tasks ?? {});
-  const isActive = wf.status === 'pending' || wf.status === 'running' || wf.status === 'suspended';
+  const taskEntries = tasksOf(wf);
+  const hasChildren = taskEntries.some((t) => t.child_workflow_id || t.subflow_tasks?.length)
+    || wf.definition.tasks.some((d) => d.child_workflow_def);
   const hookEntries = wf.hook_states ? Object.entries(wf.hook_states) : [];
 
   return (
@@ -726,7 +724,7 @@ export default function WorkflowDetail() {
         <button className="btn" onClick={() => navigate('/workflows')}>Back</button>
         <h2>{wf.workflow_name}</h2>
         <span className={`badge badge-${wf.status}`}>{wf.status}</span>
-        {!readOnly && isActive && (
+        {!readOnly && isActive(wf) && (
           <button
             className="btn btn-danger"
             onClick={() => cancelMut.mutate(wf.id)}
@@ -882,7 +880,7 @@ export default function WorkflowDetail() {
             <th>Status</th>
             <th>Job ID</th>
             <th>Dependencies</th>
-            <th>Child Workflow</th>
+            {hasChildren && <th>Child Workflow</th>}
             <th>Error</th>
             <th>Started</th>
             <th>Finished</th>
@@ -903,7 +901,7 @@ export default function WorkflowDetail() {
                 <td>{def?.priority ?? '-'}</td>
                 <td>
                   <span className={`badge badge-${t.status}`}>{t.status}</span>
-                  {t.condition_route != null && <span style={{ marginLeft: 4, color: '#c084fc', fontSize: 11 }}>route {t.condition_route}</span>}
+                  {t.condition_route != null && <span style={{ marginLeft: 4, color: 'var(--hold)', fontSize: 11 }}>route {t.condition_route}</span>}
                 </td>
                 <td className="mono">
                   {t.job_id ? (
@@ -916,7 +914,7 @@ export default function WorkflowDetail() {
                   ) : '-'}
                 </td>
                 <td>{def?.depends_on?.join(', ') || '-'}</td>
-                <td className="mono">
+                {hasChildren && <td className="mono">
                   {t.child_workflow_id ? (
                     <span
                       className="link"
@@ -927,9 +925,9 @@ export default function WorkflowDetail() {
                   ) : def?.child_workflow_def ? (
                     <span className="badge badge-pending">child</span>
                   ) : t.subflow_tasks && t.subflow_tasks.length > 0 ? (
-                    <span style={{ color: '#c084fc', fontSize: 11 }}>{t.subflow_tasks.length} injected</span>
+                    <span style={{ color: 'var(--hold)', fontSize: 11 }}>{t.subflow_tasks.length} injected</span>
                   ) : '-'}
-                </td>
+                </td>}
                 <td className="error-cell">{t.error || '-'}</td>
                 <td>{t.started_at ? timeAgo(t.started_at) : '-'}</td>
                 <td>{t.finished_at ? timeAgo(t.finished_at) : '-'}</td>
