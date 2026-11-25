@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { useLockInfo, useForceUnlock, useConcurrencyInfo, useRequeueRun, useGroups } from '../hooks';
+import { Link } from 'react-router';
+import { useLockInfo, useForceUnlock, useConcurrencyInfo, useRequeueRun, useCleanupRunHistory, useGroups } from '../hooks';
 import { useSettings } from '../context/useSettings';
 
 function LockInspector() {
@@ -107,7 +108,7 @@ function ConcurrencyInspector() {
                 <tbody>
                   {info.active_run_ids.map((rid) => (
                     <tr key={rid}>
-                      <td className="mono">{rid}</td>
+                      <td><Link className="link mono" to={`/runs?run=${rid}`}>{rid}</Link></td>
                     </tr>
                   ))}
                 </tbody>
@@ -156,6 +157,51 @@ function RunRequeue() {
   );
 }
 
+function RunHistoryCleanup() {
+  const { readOnly } = useSettings();
+  const [days, setDays] = useState(30);
+  const cleanupMut = useCleanupRunHistory();
+
+  if (readOnly) return null;
+
+  return (
+    <div>
+      <h3>Clean Up Run History</h3>
+      <p className="hint">
+        Finished runs are kept until they are removed, here or by the retention of the servers. Jobs, their audit
+        trails and active runs are left alone.
+      </p>
+      <form
+        className="search-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (confirm(`Remove all runs that finished more than ${days} ${days === 1 ? 'day' : 'days'} ago? They cannot be brought back.`)) {
+            cleanupMut.mutate(days);
+          }
+        }}
+      >
+        <label>
+          Finished more than
+          <input
+            type="number"
+            min={1}
+            max={3650}
+            step={1}
+            required
+            style={{ flex: 'none', width: '5rem' }}
+            value={Number.isNaN(days) ? '' : days}
+            onChange={(e) => setDays(e.target.valueAsNumber)}
+          />
+          days ago
+        </label>
+        <button className="btn btn-danger" type="submit" disabled={cleanupMut.isPending}>
+          {cleanupMut.isPending ? 'Removing...' : 'Remove'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 function GroupsList() {
   const { data: groups, isLoading } = useGroups();
 
@@ -199,6 +245,9 @@ export default function Operations() {
         </div>
         <div className="ops-section">
           <RunRequeue />
+        </div>
+        <div className="ops-section">
+          <RunHistoryCleanup />
         </div>
         <div className="ops-section">
           <GroupsList />

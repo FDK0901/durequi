@@ -17,8 +17,8 @@ export default function Queues() {
     <div className="page">
       <h2>Queue Management</h2>
       <p className="hint">
-        The weight is the share of the work a queue gets while all of them have some. The stream length counts
-        messages that have been processed, too: it is not a backlog.
+        A worker looks at the queues with a higher weight first. Delayed are retries, jobs whose concurrency key is
+        taken, and jobs of a handler that is at its limit.
       </p>
 
       <table>
@@ -28,7 +28,9 @@ export default function Queues() {
             <th>Weight</th>
             <th>Fetch Batch</th>
             <th>Rate Limit</th>
-            <th>Stream Length</th>
+            <th>Waiting</th>
+            <th>In Flight</th>
+            <th>Delayed</th>
             <th>Status</th>
             {!readOnly && <th>Actions</th>}
           </tr>
@@ -47,7 +49,9 @@ export default function Queues() {
               </td>
               <td>{q.fetch_batch}</td>
               <td>{q.rate_limit ? `${q.rate_limit}/s (burst: ${q.rate_burst ?? q.rate_limit})` : '-'}</td>
-              <td>{q.size}</td>
+              <td>{q.waiting?.toLocaleString() ?? '-'}</td>
+              <td>{q.in_flight?.toLocaleString() ?? '-'}</td>
+              <td>{q.delayed?.toLocaleString() ?? '-'}</td>
               <td>
                 <span className={`badge ${q.paused ? 'badge-cancelled' : 'badge-running'}`}>
                   {q.paused ? 'Paused' : 'Active'}

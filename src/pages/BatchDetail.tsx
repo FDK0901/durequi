@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from 'react-router';
+import { Link, useParams, useNavigate } from 'react-router';
 import { useBatch, useBatchResults, useCancelBatch, useRetryBatch } from '../hooks';
 import { useSettings } from '../context/useSettings';
 import { timeAgo, formatCountdown } from '../util';
@@ -89,6 +89,7 @@ export default function BatchDetail() {
         <button className="btn" onClick={() => navigate('/batches')}>Back</button>
         <h2>{batch.name}</h2>
         <span className={`badge badge-${batch.status}`}>{batch.status}</span>
+        <Link className="link" to={`/events?id=${batch.id}`}>Events</Link>
         {!readOnly && isActive && (
           <button
             className="btn btn-danger"

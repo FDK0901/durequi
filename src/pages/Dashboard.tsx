@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { useStats, useDailyStats, useSyncRetries, useNodes, useQueues, useJobs, useJobsById, useSchedules, useDLQ } from '../hooks';
+import { useStats, useDailyStats, useSyncRetries, useNodes, useQueues, useJobsById, useSchedules, useDLQ } from '../hooks';
 import { useNow } from '../context/useNow';
 import { LATE_MS, describeSchedule, formatDue, shortId } from '../util';
 import { ActivityFeed } from '../components/ActivityFeed';
@@ -42,7 +42,6 @@ interface AttentionItem {
 function Attention() {
   const now = useNow();
   const { data: stats } = useStats();
-  const { data: paused } = useJobs({ status: 'paused', limit: 1 });
   const { data: dlq } = useDLQ({ limit: 1 });
   const { data: nodes } = useNodes();
   const { data: queues } = useQueues();
@@ -65,7 +64,7 @@ function Attention() {
     { tone: 'failed', to: '/workflows?status=failed', count: stats?.workflow_counts?.failed, what: ['failed workflow', 'failed workflows'] },
     { tone: 'failed', to: '/batches?status=failed', count: stats?.batch_counts?.failed, what: ['failed batch', 'failed batches'] },
     { tone: 'retrying', to: '/dlq', count: dlq?.total, what: ['message in the DLQ', 'messages in the DLQ'], note: 'Executions that were given up' },
-    { tone: 'paused', to: '/jobs?status=paused', count: paused?.total, what: ['paused job', 'paused jobs'] },
+    { tone: 'paused', to: '/jobs?status=paused', count: stats?.job_counts.paused, what: ['paused job', 'paused jobs'] },
     { tone: 'paused', to: '/workflows?status=suspended', count: stats?.workflow_counts?.suspended, what: ['suspended workflow', 'suspended workflows'] },
     { tone: 'paused', to: '/queues', count: queues?.filter((q) => q.paused).length, what: ['paused queue', 'paused queues'] },
   ];
@@ -147,7 +146,7 @@ function StatusTable({ title, rows, to }: { title: string; rows: [string, number
 export default function Dashboard() {
   const { data: stats, isLoading, error } = useStats();
   const { data: nodes } = useNodes();
-  const { data: pausedJobs } = useJobs({ status: 'paused', limit: 1 });
+  const { data: queues } = useQueues();
   const [period, setPeriod] = useState<Period>(7);
   const { data: dailyStats } = useDailyStats(period);
   const { data: syncRetries } = useSyncRetries();
@@ -158,6 +157,7 @@ export default function Dashboard() {
 
   const capacity = nodes?.reduce((n, node) => n + (node.pool_stats?.max_concurrency ?? 0), 0) ?? 0;
   const busy = nodes?.reduce((n, node) => n + (node.pool_stats?.running_workers ?? 0), 0) ?? 0;
+  const waiting = queues?.reduce((n, q) => n + (q.waiting ?? 0), 0) ?? 0;
   const today = dailyStats?.[dailyStats.length - 1];
   const attempts = today ? today.processed + today.failed : 0;
 
@@ -176,7 +176,10 @@ export default function Dashboard() {
         </div>
         <div className="stat-card">
           <div className="stat-value">{stats.active_runs}</div>
-          <div className="stat-label">Active Runs</div>
+          <div className="stat-label">
+            Active Runs
+            {waiting > 0 && <Link className="sub" to="/queues">{waiting.toLocaleString()} waiting</Link>}
+          </div>
         </div>
         <div className="stat-card">
           <div className="stat-value">{busy}/{capacity}</div>
@@ -282,7 +285,10 @@ export default function Dashboard() {
           <NextFirings />
         </div>
         <div className="chart-section">
-          <div className="chart-header"><h3>Live Activity</h3></div>
+          <div className="chart-header">
+            <h3>Live Activity</h3>
+            <Link className="link" to="/events">All events</Link>
+          </div>
           <ActivityFeed />
         </div>
       </div>
@@ -291,7 +297,7 @@ export default function Dashboard() {
         <StatusTable
           title="Jobs by Status"
           to="/jobs"
-          rows={STATUS_ORDER.map((s) => [s, s === 'paused' ? pausedJobs?.total ?? 0 : stats.job_counts[s] ?? 0])}
+          rows={STATUS_ORDER.map((s) => [s, stats.job_counts[s] ?? 0])}
         />
         {stats.workflow_counts && Object.keys(stats.workflow_counts).length > 0 && (
           <StatusTable title="Workflows by Status" to="/workflows" rows={Object.entries(stats.workflow_counts)} />

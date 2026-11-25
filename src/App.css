@@ -809,6 +809,8 @@ tr.clickable:hover td {
   font-size: 0.8rem;
 }
 .search-form input { flex: 1 1 160px; }
+.search-form label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; white-space: nowrap; }
+.search-form input[type='checkbox'] { flex: none; }
 .stat-card-danger .stat-value { color: var(--bad-text); }
 .stat-card-warning .stat-value { color: light-dark(#7a5200, #fbbf24); }
 .badge-timed_out { background: light-dark(#fbdede, #3b1114); color: light-dark(#b92426, #f87171); }

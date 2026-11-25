@@ -71,6 +71,7 @@ export default function Nodes() {
   return (
     <div className="page">
       <h2>Nodes</h2>
+      <p className="hint">Started counts the runs since the node came up, retries among them.</p>
 
       <table>
         <thead>
@@ -78,6 +79,7 @@ export default function Nodes() {
             <th>Node ID</th>
             <th>Workers</th>
             <th>Active Runs</th>
+            <th>Started</th>
             <th>Task Types</th>
             <th>Status</th>
             <th>Up Since</th>
@@ -103,6 +105,16 @@ export default function Nodes() {
                 ) : '-'}
               </td>
               <td>{activeRuns?.filter((r) => r.node_id === n.node_id).length ?? n.active_run_ids?.length ?? 0}</td>
+              <td>
+                {n.pool_stats ? (
+                  <>
+                    {n.pool_stats.total_submitted.toLocaleString()}
+                    <span className="sub">
+                      {n.pool_stats.total_completed.toLocaleString()} completed, {n.pool_stats.total_failed.toLocaleString()} failed
+                    </span>
+                  </>
+                ) : '-'}
+              </td>
               <td>{n.task_types?.length ?? 0}</td>
               <td>
                 {draining.has(n.node_id)
@@ -138,7 +150,7 @@ export default function Nodes() {
           ))}
           {nodes?.length === 0 && (
             <tr>
-              <td colSpan={!readOnly ? 8 : 7} className="empty">
+              <td colSpan={!readOnly ? 9 : 8} className="empty">
                 No nodes
               </td>
             </tr>
