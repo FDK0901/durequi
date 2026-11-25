@@ -347,6 +347,10 @@ async function deleteAction(path: string): Promise<void> {
   await request(path, { method: 'DELETE' });
 }
 
+async function deleteJSON<T>(path: string): Promise<T> {
+  return (await request(path, { method: 'DELETE' })).json();
+}
+
 export interface Paginated<T> {
   data: T[] | null;
   total: number;
@@ -366,7 +370,7 @@ export interface JobListParams extends ListParams {
   tag?: string;
 }
 
-/** The API filters runs by job or by status, not by both. */
+/** The API filters runs by job or by status. If both are given it goes by the job alone. */
 export interface HistoryRunParams {
   limit?: number;
   offset?: number;
@@ -375,6 +379,22 @@ export interface HistoryRunParams {
   job_id?: string;
   since?: string;
   until?: string;
+}
+
+export interface EventParams {
+  limit?: number;
+  offset?: number;
+  /** A job, or what a workflow.* or batch.* event has in its place. */
+  job_id?: string;
+}
+
+export interface JobSearchParams {
+  path: string;
+  value: string;
+  task_type?: string;
+  /** Leaves out completed, dead and cancelled jobs. */
+  live?: boolean;
+  limit?: number;
 }
 
 export interface UniqueKeyResult {
@@ -399,7 +419,14 @@ export interface QueueInfo {
   rate_limit?: number;
   rate_burst?: number;
   paused: boolean;
+  /** Length of the stream, including what has been processed but not trimmed yet. */
   size: number;
+  /** No worker has taken it yet. Needs Redis 7.0. */
+  waiting?: number;
+  /** Taken by a worker and not finished yet. */
+  in_flight?: number;
+  /** Due later: retries, and jobs of a handler that is at its limit. */
+  delayed?: number;
 }
 
 // --- Audit Trail ---
@@ -478,6 +505,7 @@ export const api = {
     fetchJSON<Paginated<DLQMessage>>(`/api/dlq?${buildQS(params)}`),
   cancelJob: (id: string) => postAction(`/api/jobs/${id}/cancel`),
   retryJob: (id: string) => postAction(`/api/jobs/${id}/retry`),
+  resumeJob: (id: string) => postAction(`/api/jobs/${id}/resume`),
   updateJobPayload: (id: string, payload: unknown) =>
     putJSON<{ status: string }>(`/api/jobs/${id}/payload`, { payload }),
   health: () => fetchJSON<{ status: string }>('/api/health'),
@@ -487,6 +515,14 @@ export const api = {
     fetchJSON<JobRun[] | null>(`/api/jobs/${jobId}/runs?limit=${limit}`),
   listHistoryRuns: (params: HistoryRunParams = {}) =>
     fetchJSON<Paginated<JobRun>>(`/api/history/runs?${buildQS(params)}`),
+  /** A run, active or finished. */
+  getRun: (id: string) => fetchJSON<JobRun>(`/api/runs/${encodeURIComponent(id)}`),
+  cleanupRunHistory: (days: number) =>
+    deleteJSON<{ removed: number }>(`/api/history/runs?older_than=${days * 24}h`),
+  listHistoryEvents: (params: EventParams = {}) =>
+    fetchJSON<Paginated<JobEvent>>(`/api/history/events?${buildQS(params)}`),
+  listJobEvents: (jobId: string, limit = 50) =>
+    fetchJSON<JobEvent[] | null>(`/api/jobs/${jobId}/events?limit=${limit}`),
 
   // Workflows
   listWorkflows: (params: ListParams = {}) =>
@@ -547,8 +583,8 @@ export const api = {
     postJSON<{ affected: number }>('/api/batches/bulk/delete', { ids, status }),
 
   // Payload search (JSONPath)
-  searchJobsByPayload: (path: string, value: string, task_type?: string) =>
-    fetchJSON<Job>(`/api/search/jobs?${buildQS({ path, value, task_type })}`),
+  searchJobsByPayload: (params: JobSearchParams) =>
+    fetchJSON<{ data: Job[] | null; has_more: boolean }>(`/api/search/jobs/all?${buildQS(params)}`),
   searchWorkflowsByPayload: (path: string, value: string) =>
     fetchJSON<WorkflowInstance>(`/api/search/workflows?${buildQS({ path, value })}`),
   searchBatchesByPayload: (path: string, value: string) =>

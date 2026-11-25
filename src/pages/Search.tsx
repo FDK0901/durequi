@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useSearchJobsByPayload, useSearchWorkflowsByPayload, useSearchBatchesByPayload, useCheckUniqueKey, useDeleteUniqueKey, useJobsById } from '../hooks';
 import { useSettings } from '../context/useSettings';
+import { timeAgo } from '../util';
 
 type SearchTarget = 'jobs' | 'workflows' | 'batches';
 
@@ -18,16 +19,20 @@ export default function Search() {
   const [submittedTarget, setSubmittedTarget] = useState<SearchTarget>('jobs');
   const [taskType, setTaskType] = useState('');
   const [submittedTaskType, setSubmittedTaskType] = useState('');
+  const [live, setLive] = useState(false);
+  const [submittedLive, setSubmittedLive] = useState(false);
 
   // Unique key state
   const [uniqueKey, setUniqueKey] = useState('');
   const [submittedKey, setSubmittedKey] = useState('');
 
-  const jobResult = useSearchJobsByPayload(
-    submittedTarget === 'jobs' ? submittedPath : '',
-    submittedTarget === 'jobs' ? submittedValue : '',
-    submittedTaskType || undefined,
-  );
+  const jobResult = useSearchJobsByPayload({
+    path: submittedTarget === 'jobs' ? submittedPath : '',
+    value: submittedTarget === 'jobs' ? submittedValue : '',
+    task_type: submittedTaskType || undefined,
+    live: submittedLive || undefined,
+    limit: 100,
+  });
   const wfResult = useSearchWorkflowsByPayload(
     submittedTarget === 'workflows' ? submittedPath : '',
     submittedTarget === 'workflows' ? submittedValue : '',
@@ -48,6 +53,7 @@ export default function Search() {
     setSubmittedValue(searchValue);
     setSubmittedTarget(target);
     setSubmittedTaskType(target === 'jobs' ? taskType.trim() : '');
+    setSubmittedLive(target === 'jobs' && live);
   }
 
   function handleUniqueKeySearch(e: React.FormEvent) {
@@ -56,11 +62,16 @@ export default function Search() {
   }
 
   const activeResult = submittedTarget === 'jobs' ? jobResult : submittedTarget === 'workflows' ? wfResult : batchResult;
+  const newest = submittedTarget === 'workflows' ? wfResult.data : batchResult.data;
+  const matches: { id: string; status: string; kind: string; updated_at: string }[] | undefined =
+    submittedTarget === 'jobs'
+      ? jobResult.data && (jobResult.data.data ?? []).map((j) => ({ ...j, kind: j.task_type }))
+      : newest && [{ ...newest, kind: submittedTarget === 'workflows' ? 'workflow' : 'batch' }];
 
   return (
     <div className="page">
       <h2>Payload Search</h2>
-      <p className="hint">Search jobs, workflows, or batches by JSONPath in their payload. Example path: <code>user.email</code>. Finds the newest match, whatever its status. Needs RedisJSON.</p>
+      <p className="hint">Search jobs, workflows, or batches by JSONPath in their payload. Example path: <code>user.email</code>. Finds all jobs that match, newest first, and the newest workflow or batch. Needs RedisJSON.</p>
 
       <form onSubmit={handlePayloadSearch} className="search-form">
         <select value={target} onChange={(e) => setTarget(e.target.value as SearchTarget)}>
@@ -90,6 +101,12 @@ export default function Search() {
             onChange={(e) => setTaskType(e.target.value)}
           />
         )}
+        {target === 'jobs' && (
+          <label title="Leave out completed, dead and cancelled jobs">
+            <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} />
+            Live only
+          </label>
+        )}
         <button className="btn btn-primary" type="submit">Search</button>
       </form>
 
@@ -97,36 +114,37 @@ export default function Search() {
         <div className="search-results">
           {activeResult.isLoading && <div className="loading">Searching...</div>}
           {activeResult.error && <div className="error">Not found or error: {activeResult.error.message}</div>}
-          {activeResult.data && (
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Type</th>
-                  <th>Status</th>
-                  <th>Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td className="mono">{(activeResult.data as { id: string }).id}</td>
-                  <td>{submittedTarget}</td>
-                  <td>
-                    <span className={`badge badge-${(activeResult.data as { status: string }).status}`}>
-                      {(activeResult.data as { status: string }).status}
-                    </span>
-                  </td>
-                  <td>
-                    <button
-                      className="btn btn-sm btn-primary"
-                      onClick={() => navigate(`/${submittedTarget}/${(activeResult.data as { id: string }).id}`)}
-                    >
-                      View
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+          {matches && matches.length === 0 && <div className="empty-state">No {submittedLive && 'live '}job matches.</div>}
+          {matches && matches.length > 0 && (
+            <>
+              {jobResult.data?.has_more && <p className="hint">The newest {matches.length} of more. Narrow it down to see the others.</p>}
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Updated</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {matches.map((m) => (
+                    <tr key={m.id}>
+                      <td className="mono">{m.id}</td>
+                      <td>{m.kind}</td>
+                      <td><span className={`badge badge-${m.status}`}>{m.status}</span></td>
+                      <td>{timeAgo(m.updated_at)}</td>
+                      <td>
+                        <button className="btn btn-sm btn-primary" onClick={() => navigate(`/${submittedTarget}/${m.id}`)}>
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
           )}
         </div>
       )}

@@ -1,5 +1,5 @@
 import { useQuery, useQueries, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { api, type ListParams, type JobListParams, type HistoryRunParams } from './api';
+import { api, type ListParams, type JobListParams, type HistoryRunParams, type EventParams, type JobSearchParams } from './api';
 
 import { useWebSocketStatus } from './context/useWebsocketStatus';
 import { useSettings } from './context/useSettings';
@@ -148,6 +148,57 @@ export function useHistoryRuns(params: HistoryRunParams = {}) {
   });
 }
 
+/** A run by its ID, active or finished. */
+export function useRun(id: string) {
+  return useQuery({
+    queryKey: ['run', id],
+    queryFn: () => api.getRun(id),
+    enabled: !!id,
+    retry: false,
+  });
+}
+
+export function useCleanupRunHistory() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (days: number) => api.cleanupRunHistory(days),
+    onSuccess: () => {
+      for (const key of ['historyRuns', 'jobRuns', 'run']) qc.invalidateQueries({ queryKey: [key] });
+    },
+    meta: { done: (res: unknown) => `${(res as { removed: number }).removed.toLocaleString()} runs removed` },
+  });
+}
+
+// To look for the events of one job, the API reads all events it has. So what is below is
+// read when asked for, and not again with every event that comes in.
+
+/** The last events, for a list that the WebSocket keeps up. Read anew when it reconnects. */
+export function useRecentEvents(limit: number) {
+  const { status } = useWebSocketStatus();
+  return useQuery({
+    queryKey: ['recentEvents', limit, status === 'connected'],
+    queryFn: async () => (await api.listHistoryEvents({ limit })).data ?? [],
+    refetchInterval: useRefetchInterval(),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useHistoryEvents(params: EventParams = {}) {
+  return useQuery({
+    queryKey: ['historyEvents', params],
+    queryFn: () => api.listHistoryEvents(params),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useJobEvents(jobId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['jobEvents', jobId],
+    queryFn: async () => (await api.listJobEvents(jobId)) ?? [],
+    enabled,
+  });
+}
+
 /** Invalidates whatever shows jobs, after one of them has been changed. */
 function useInvalidateJobs() {
   const qc = useQueryClient();
@@ -173,6 +224,15 @@ export function useRetryJob() {
     mutationFn: (id: string) => api.retryJob(id),
     onSuccess,
     meta: { done: 'Job retried' },
+  });
+}
+
+export function useResumeJob() {
+  const onSuccess = useInvalidateJobs();
+  return useMutation({
+    mutationFn: (id: string) => api.resumeJob(id),
+    onSuccess,
+    meta: { done: 'Job resumed' },
   });
 }
 
@@ -421,11 +481,11 @@ export const useBulkDeleteBatches = () => useBulk(BATCH_KEYS, 'deleted', (v) => 
 
 // --- Payload Search ---
 
-export function useSearchJobsByPayload(path: string, value: string, taskType?: string) {
+export function useSearchJobsByPayload(params: JobSearchParams) {
   return useQuery({
-    queryKey: ['searchJobs', path, value, taskType],
-    queryFn: () => api.searchJobsByPayload(path, value, taskType),
-    enabled: !!path && !!value,
+    queryKey: ['searchJobs', params],
+    queryFn: () => api.searchJobsByPayload(params),
+    enabled: !!params.path && !!params.value,
     retry: false,
   });
 }

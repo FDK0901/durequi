@@ -1,4 +1,4 @@
-import type { Job, JobRun, RetryPolicy, Schedule } from './api';
+import type { Job, JobEvent, JobRun, RetryPolicy, Schedule } from './api';
 
 export function timeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -231,6 +231,40 @@ export function readProgress(progress: unknown): { percent?: number; message?: s
 
 function clampPercent(n: number): number {
   return Math.max(0, Math.min(100, n));
+}
+
+/** eventTone returns the class of the color of an event. */
+export function eventTone(type: string): string {
+  if (/failed|dead|crash|panicked|timed_out|timeout/.test(type)) return 'tone-failed';
+  if (/retrying|auto_recovered/.test(type)) return 'tone-retrying';
+  if (/completed|resumed/.test(type)) return 'tone-completed';
+  if (/paused|suspended/.test(type)) return 'tone-paused';
+  if (/started|dispatched/.test(type)) return 'tone-running';
+  return 'tone-skipped';
+}
+
+export function eventLabel(type: string): string {
+  return type.replaceAll('_', ' ').replaceAll('.', ' ');
+}
+
+/** eventTarget returns the page of what an event is about. */
+export function eventTarget(e: JobEvent): string | null {
+  if (e.workflow_id) return `/workflows/${e.workflow_id}`;
+  if (!e.job_id) return null;
+  if (e.type.startsWith('workflow.')) return `/workflows/${e.job_id}`;
+  if (e.type.startsWith('batch.')) return `/batches/${e.job_id}`;
+  return `/jobs/${e.job_id}`;
+}
+
+/** eventKey tells events apart, also one that came in live from the same one in the history. */
+export function eventKey(e: JobEvent): string {
+  return [e.type, e.job_id, e.run_id, e.workflow_id, e.timestamp].join(' ');
+}
+
+/** mergeEvents returns events of several lists, each of them once, newest first. */
+export function mergeEvents(...lists: JobEvent[][]): JobEvent[] {
+  const byKey = new Map(lists.flat().map((e) => [eventKey(e), e]));
+  return [...byKey.values()].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 }
 
 export function isTerminal(status: string): boolean {

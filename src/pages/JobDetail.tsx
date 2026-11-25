@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router';
-import { useJob, useCancelJob, useRetryJob, useDeleteJob, useUpdateJobPayload, useJobAuditTrail, useJobProgress, useJobRuns, useActiveRuns, useCheckUniqueKey } from '../hooks';
+import { useJob, useCancelJob, useRetryJob, useResumeJob, useDeleteJob, useUpdateJobPayload, useJobAuditTrail, useJobProgress, useJobRuns, useJobEvents, useActiveRuns, useCheckUniqueKey } from '../hooks';
 import { useSettings } from '../context/useSettings';
+import { EventTable } from '../components/EventTable';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { JsonView } from '../components/JsonView';
 import { Progress } from '../components/Progress';
@@ -34,6 +35,28 @@ function UniqueKey({ job }: { job: Job }) {
           )}
         </span>
       )}
+    </>
+  );
+}
+
+/** The events of a job, once they are asked for: the API has to look through all of them. */
+function JobEvents({ id }: { id: string }) {
+  const [shown, setShown] = useState(false);
+  const { data: events, error, isFetching, refetch } = useJobEvents(id, shown);
+  return (
+    <>
+      <h3>Events</h3>
+      {error && <p className="error-text">{error.message}</p>}
+      {events && events.length === 0 && <p className="muted">None that the cluster still has.</p>}
+      {events && events.length > 0 && <EventTable events={events} subject={false} />}
+      <button
+        className="btn btn-sm"
+        style={{ marginTop: '0.5rem' }}
+        onClick={() => (shown ? refetch() : setShown(true))}
+        disabled={isFetching}
+      >
+        {shown ? 'Refresh Events' : 'Show Events'}
+      </button>
     </>
   );
 }
@@ -89,6 +112,7 @@ export default function JobDetail() {
   const { data: activeRuns } = useActiveRuns();
   const cancelMut = useCancelJob();
   const retryMut = useRetryJob();
+  const resumeMut = useResumeJob();
   const deleteMut = useDeleteJob();
   const [picked, setPicked] = useState<JobRun | null>(null);
 
@@ -109,6 +133,16 @@ export default function JobDetail() {
         <h2>Job Detail</h2>
         {!readOnly && (
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
+            {job.status === 'paused' && (
+              <button
+                className="btn btn-primary"
+                title={recurring ? 'Runs what it was paused on, and goes on with the schedule' : 'Runs what it was paused on'}
+                onClick={() => resumeMut.mutate(job.id)}
+                disabled={resumeMut.isPending}
+              >
+                Resume
+              </button>
+            )}
             {!isTerminal(job.status) && (
               <button
                 className="btn btn-danger"
@@ -191,7 +225,7 @@ export default function JobDetail() {
               <dt>Paused</dt>
               <dd>
                 {timeAgo(job.paused_at)}
-                <span className="sub">{job.resume_at ? `resumes at ${new Date(job.resume_at).toLocaleString()}` : 'until it is resumed'}</span>
+                <span className="sub">{job.resume_at ? `resumes at ${new Date(job.resume_at).toLocaleString()}, or when you resume it` : 'until you resume it'}</span>
               </dd>
             </>
           )}
@@ -385,6 +419,8 @@ export default function JobDetail() {
             </table>
           </>
         )}
+
+        <JobEvents key={`events-${job.id}`} id={job.id} />
       </div>
       {picked && <RunDrawer run={picked} onClose={() => setPicked(null)} />}
     </div>

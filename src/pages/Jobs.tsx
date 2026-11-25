@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
-import { useJobs, useActiveRuns, useCancelJob, useRetryJob, useBulkCancelJobs, useBulkRetryJobs, useBulkDeleteJobs, useAuditCounts } from '../hooks';
+import { useJobs, useActiveRuns, useCancelJob, useRetryJob, useResumeJob, useBulkCancelJobs, useBulkRetryJobs, useBulkDeleteJobs, useAuditCounts } from '../hooks';
 import { useSettings } from '../context/useSettings';
 import { isRetryable, isTerminal, timeAgo } from '../util';
 import { CopyId } from '../components/CopyId';
@@ -43,6 +43,7 @@ export default function Jobs() {
   });
   const cancelMut = useCancelJob();
   const retryMut = useRetryJob();
+  const resumeMut = useResumeJob();
   const bulkCancel = useBulkCancelJobs();
   const bulkRetry = useBulkRetryJobs();
   const bulkDelete = useBulkDeleteJobs();
@@ -239,6 +240,15 @@ export default function Jobs() {
                       disabled={cancelMut.isPending}
                     >
                       Cancel
+                    </button>
+                  )}
+                  {j.status === 'paused' && (
+                    <button
+                      className="btn btn-sm btn-primary"
+                      onClick={() => resumeMut.mutate(j.id)}
+                      disabled={resumeMut.isPending}
+                    >
+                      Resume
                     </button>
                   )}
                   {isRetryable(j.status) && (

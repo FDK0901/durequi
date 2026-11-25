@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router';
+import { Link, useParams, useNavigate } from 'react-router';
 import { useWorkflow, useCancelWorkflow, useRetryWorkflow, useWorkflowAuditTrail, useWorkflowTaskResult, useSuspendWorkflow, useResumeWorkflow, useWorkflowSignalStats } from '../hooks';
 import { useSettings } from '../context/useSettings';
 import { useNow } from '../context/useNow';
@@ -724,6 +724,7 @@ export default function WorkflowDetail() {
         <button className="btn" onClick={() => navigate('/workflows')}>Back</button>
         <h2>{wf.workflow_name}</h2>
         <span className={`badge badge-${wf.status}`}>{wf.status}</span>
+        <Link className="link" to={`/events?id=${wf.id}`}>Events</Link>
         {!readOnly && isActive(wf) && (
           <button
             className="btn btn-danger"

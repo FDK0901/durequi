@@ -1,6 +1,6 @@
 import { Link } from 'react-router';
 import type { JobRun } from '../api';
-import { useActiveRuns, useLockInfo, useRequeueRun } from '../hooks';
+import { useActiveRuns, useLockInfo, useRequeueRun, useRun } from '../hooks';
 import { useSettings } from '../context/useSettings';
 import { useNow } from '../context/useNow';
 import { describeOperation, formatDateTime, formatMs, formatNs, outcomeOf, startOf, timeAgo } from '../util';
@@ -15,7 +15,9 @@ export function RunDrawer({ run: picked, onClose }: { run: JobRun; onClose: () =
   const requeue = useRequeueRun();
   // A run that is going is updated as it goes.
   const live = active?.find((r) => r.id === picked.id);
-  const run = live ?? picked;
+  // One that was going when it was picked may have ended since.
+  const { data: found } = useRun(active && !live && outcomeOf(picked) === 'running' ? picked.id : '');
+  const run = live ?? found ?? picked;
   const ended = outcomeOf(run) !== 'running';
   const { data: lock } = useLockInfo(live ? `run:${run.id}` : '');
   const operation = describeOperation(run);
@@ -91,6 +93,22 @@ export function RunDrawer({ run: picked, onClose }: { run: JobRun; onClose: () =
           <p className="muted">Runs the job again, from its first attempt. Refused while another job holds its unique key.</p>
         </>
       )}
+    </div>
+  );
+}
+
+/** RunDrawer for a run of which there is only the ID. */
+export function RunDrawerById({ id, onClose }: { id: string; onClose: () => void }) {
+  const { data: run, error } = useRun(id);
+  if (run) return <RunDrawer run={run} onClose={onClose} />;
+  return (
+    <div className="task-sidebar">
+      <div className="task-sidebar-header">
+        <h3 style={{ margin: 0 }}>Run</h3>
+        <button className="task-sidebar-close" onClick={onClose} aria-label="Close">&times;</button>
+      </div>
+      <p className="mono">{id}</p>
+      {error ? <p className="error-text">{error.message}</p> : <p className="muted">Loading...</p>}
     </div>
   );
 }

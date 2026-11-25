@@ -1,9 +1,9 @@
 import { useState, useMemo } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useActiveRuns, useHistoryRuns } from '../hooks';
-import { formatNs, mergeRuns, outcomeOf, timeAgo } from '../util';
+import { formatNs, mergeRuns, timeAgo } from '../util';
 import { Pagination, SortSelect } from '../components/Pagination';
-import { RunDrawer } from '../components/RunDrawer';
+import { RunDrawer, RunDrawerById } from '../components/RunDrawer';
 import { NodeLanes } from '../components/charts/NodeLanes';
 import type { JobRun } from '../api';
 
@@ -17,7 +17,15 @@ export default function Runs() {
   const [jobIdFilter, setJobIdFilter] = useState('');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
   const [picked, setPicked] = useState<JobRun | null>(null);
+  const [search, setSearch] = useSearchParams();
+  const runId = search.get('run') ?? '';
+  const [runIdDraft, setRunIdDraft] = useState(runId);
   const navigate = useNavigate();
+
+  function lookUp(id: string) {
+    setRunIdDraft(id);
+    setSearch(id ? { run: id } : {}, { replace: true });
+  }
 
   const params = useMemo(
     () => ({
@@ -33,11 +41,9 @@ export default function Runs() {
   const { data, isLoading, error } = useHistoryRuns(params);
   const { data: activeRuns } = useActiveRuns();
   const active = (activeRuns ?? []).filter((r) => !jobIdFilter || r.job_id === jobIdFilter);
-  // The API goes by the job alone if one is given. And by "failed" it also finds runs
-  // that failed at first: their retry went on under the same ID.
+  // The API goes by the job alone if one is given.
   const found = data?.data ?? [];
-  const runs = statusFilter ? found.filter((r) => r.status === statusFilter) : found;
-  const recovered = statusFilter === 'failed' ? found.filter((r) => outcomeOf(r) === 'recovered').length : 0;
+  const runs = statusFilter && jobIdFilter ? found.filter((r) => r.status === statusFilter) : found;
   const total = data?.total ?? 0;
 
   if (isLoading) return <div className="loading">Loading...</div>;
@@ -70,10 +76,18 @@ export default function Runs() {
           ))}
         </select>
         <SortSelect value={sortOrder} onChange={(v) => { setSortOrder(v); setOffset(0); }} />
+        <input
+          type="text"
+          placeholder="Look up a Run ID..."
+          value={runIdDraft}
+          onChange={(e) => setRunIdDraft(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && lookUp(runIdDraft.trim())}
+        />
+        <button className="btn" onClick={() => lookUp(runIdDraft.trim())} disabled={!runIdDraft.trim()}>Look Up</button>
       </div>
 
-      {recovered > 0 && (
-        <p className="hint">{recovered} on this page failed at first and succeeded when retried. They are left out.</p>
+      {statusFilter && jobIdFilter && runs.length < found.length && (
+        <p className="hint">{found.length - runs.length} runs of this job on this page have another status and are left out.</p>
       )}
 
       {!statusFilter && sortOrder === 'newest' && offset === 0 && runs.length + active.length > 0 && (
@@ -127,7 +141,9 @@ export default function Runs() {
           <Pagination offset={offset} limit={PAGE_SIZE} total={total} onOffsetChange={setOffset} />
         </>
       )}
-      {picked && <RunDrawer run={picked} onClose={() => setPicked(null)} />}
+      {picked
+        ? <RunDrawer run={picked} onClose={() => setPicked(null)} />
+        : runId && <RunDrawerById id={runId} onClose={() => lookUp('')} />}
     </div>
   );
 }

@@ -7,6 +7,7 @@ import Nodes from './pages/Nodes';
 import Schedules from './pages/Schedules';
 import DLQ from './pages/DLQ';
 import Runs from './pages/Runs';
+import Events from './pages/Events';
 import Settings from './pages/Settings';
 import Workflows from './pages/Workflows';
 import WorkflowDetail from './pages/WorkflowDetail';
@@ -27,6 +28,7 @@ export const router = createBrowserRouter([
       { path: 'jobs', element: <Jobs /> },
       { path: 'jobs/:id', element: <JobDetail /> },
       { path: 'runs', element: <Runs /> },
+      { path: 'events', element: <Events /> },
       { path: 'nodes', element: <Nodes /> },
       { path: 'schedules', element: <Schedules /> },
       { path: 'queues', element: <Queues /> },
