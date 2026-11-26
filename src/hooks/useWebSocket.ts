@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-export type WsStatus = 'connecting' | 'connected' | 'disconnected';
+export type WsStatus = 'connecting' | 'connected' | 'disconnected' | 'offline';
 
 interface UseWebSocketOptions {
   url: string;
@@ -40,9 +40,14 @@ export function useWebSocket({ url, enabled, onMessage, onOpen }: UseWebSocketOp
       if (current !== ws) return;
       current = null;
       clearTimeout(silence);
-      setStatus('disconnected');
       if (openedAt && Date.now() - openedAt > LASTING_MS) attempt = 0;
       openedAt = 0;
+      // Without a network it is opened again when there is one.
+      if (!navigator.onLine) {
+        setStatus('offline');
+        return;
+      }
+      setStatus('disconnected');
       // Not all tabs at once.
       const delay = Math.min(1000 * 2 ** attempt++, MAX_DELAY_MS) * (0.5 + Math.random() / 2);
       retry = setTimeout(connect, delay);
@@ -94,17 +99,38 @@ export function useWebSocket({ url, enabled, onMessage, onOpen }: UseWebSocketOp
     }
 
     function wake() {
-      if (document.visibilityState !== 'visible' || current) return;
+      if (document.visibilityState !== 'visible' || current || !navigator.onLine) return;
       clearTimeout(retry);
       attempt = 0;
       connect();
     }
 
-    connect();
-    window.addEventListener('online', wake);
+    // Nothing comes without a network, though the socket may not say so for long.
+    function offline() {
+      clearTimeout(retry);
+      const ws = current;
+      if (ws) {
+        drop(ws);
+        ws.close();
+      }
+      setStatus('offline');
+    }
+
+    function online() {
+      if (current) return;
+      clearTimeout(retry);
+      attempt = 0;
+      connect();
+    }
+
+    if (navigator.onLine) connect();
+    else offline();
+    window.addEventListener('online', online);
+    window.addEventListener('offline', offline);
     document.addEventListener('visibilitychange', wake);
     return () => {
-      window.removeEventListener('online', wake);
+      window.removeEventListener('online', online);
+      window.removeEventListener('offline', offline);
       document.removeEventListener('visibilitychange', wake);
       clearTimeout(retry);
       clearTimeout(silence);

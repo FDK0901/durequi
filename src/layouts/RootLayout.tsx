@@ -36,7 +36,9 @@ export default function RootLayout() {
       ? 'Live'
       : status === 'connecting'
         ? 'Connecting...'
-        : refreshInterval
+        : status === 'offline'
+          ? 'Offline'
+          : refreshInterval
           ? 'Polling'
           : 'Not refreshing';
 
