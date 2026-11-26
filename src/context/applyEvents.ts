@@ -122,10 +122,10 @@ export function createEventHandler(qc: QueryClient, refresher: Refresher) {
     const others: Record<ListKind, Set<string>> = { jobs: new Set(), workflows: new Set(), batches: new Set() };
     const changedRows = new Set<string>();
 
-    for (const e of events) {
+    const one = (e: JobEvent) => {
       const { type, job_id: id } = e;
       if (type.startsWith('job.')) {
-        if (!id) continue;
+        if (!id) return;
         for (const root of ['job', 'jobRuns', 'jobAudit']) markOne(root, id);
         if (e.workflow_id) markOne('workflow', e.workflow_id);
         if (jobs.has(id)) changedRows.add(id);
@@ -140,7 +140,7 @@ export function createEventHandler(qc: QueryClient, refresher: Refresher) {
         if (JOB_KEYS.has(type) && type !== 'job.failed') mark(['schedules']);
       } else if (type.startsWith('workflow.')) {
         const wf = e.workflow_id ?? id;
-        if (!wf) continue;
+        if (!wf) return;
         markOne('workflow', wf);
         markOne('workflowAudit', wf);
         markOne('workflowSignalStats', wf);
@@ -149,18 +149,18 @@ export function createEventHandler(qc: QueryClient, refresher: Refresher) {
       } else if (type.startsWith('batch.')) {
         const progress = e.batch_progress;
         const batch = progress?.batch_id ?? id;
-        if (!batch) continue;
+        if (!batch) return;
         if (progress) {
           const change = (b: BatchInstance) => (b.id === batch ? withProgress(b, progress) : b);
           patchRows<BatchInstance>(qc, refresher, 'batches', change);
           const detail = qc.getQueryState<BatchInstance>(['batch', batch]);
           if (detail?.data) qc.setQueryData(['batch', batch], change(detail.data), { updatedAt: detail.dataUpdatedAt });
           if (detail?.data && detail.fetchStatus !== 'idle') mark(['batch', batch]);
-          continue;
+          return;
         }
         markOne('batch', batch);
         markOne('batchResults', batch);
-        if (type.startsWith('batch.item.') || type.startsWith('batch.onetime.')) continue; // the progress says it
+        if (type.startsWith('batch.item.') || type.startsWith('batch.onetime.')) return; // the progress says it
         if (batches.has(batch)) mark(['batches']);
         else others.batches.add(batch);
       } else if (type.startsWith('node.')) {
@@ -171,6 +171,13 @@ export function createEventHandler(qc: QueryClient, refresher: Refresher) {
         if (id) markOne('job', id);
       }
       if (e.run_id) markOne('run', e.run_id);
+    };
+    for (const e of events) {
+      try {
+        one(e);
+      } catch {
+        // One that is not what it should be is left out, and not the others with it.
+      }
     }
     if (pollOff && events.length > 0) {
       for (const root of ['stats', 'activeRuns', 'nodes', 'queues']) mark([root]);
