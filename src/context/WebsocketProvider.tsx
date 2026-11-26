@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useRef, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useWebSocket } from '../hooks/useWebSocket';
+import { wsURL } from '../base';
 import type { JobEvent } from '../api';
 import { WebsocketContext } from './WebsocketContext';
 import { addEvents } from './eventLog';
 import { useSettings } from './useSettings';
 
 const FLUSH_MS = 1000;
+
+function asEvent(data: unknown): JobEvent | null {
+  return typeof (data as JobEvent | null)?.type === 'string' ? (data as JobEvent) : null;
+}
 
 function getInvalidationKeys(event: JobEvent): string[][] {
   const keys: string[][] = [];
@@ -72,13 +77,16 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     addEvents(events);
   }, [queryClient]);
 
+  // What has happened while there was no connection is not announced any more.
+  const readAll = useCallback(() => {
+    void queryClient.invalidateQueries({ refetchType: 'active' });
+  }, [queryClient]);
+
   const onMessage = useCallback(
-    (message: MessageEvent) => {
-      try {
-        pending.current.push(JSON.parse(message.data));
-      } catch {
-        return; // Malformed message — ignore.
-      }
+    (data: unknown) => {
+      const event = asEvent(data);
+      if (!event) return; // Not an event — ignore.
+      pending.current.push(event);
       timer.current ??= setTimeout(flush, FLUSH_MS);
     },
     [flush],
@@ -89,7 +97,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     timer.current = null;
   }, []);
 
-  const { status } = useWebSocket({ onMessage, enabled: wsEnabled });
+  const { status } = useWebSocket({ url: wsURL(), onMessage, onOpen: readAll, enabled: wsEnabled });
 
   return (
     <WebsocketContext.Provider value={{ status }}>

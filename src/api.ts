@@ -1,3 +1,5 @@
+import { apiURL } from './base';
+
 // API client for the dureq monitoring HTTP endpoints.
 
 export interface ConcurrencyKey {
@@ -311,7 +313,7 @@ export class ApiError extends Error {
 }
 
 async function request(path: string, init?: RequestInit): Promise<Response> {
-  const res = await fetch(path, init);
+  const res = await fetch(apiURL(path), init);
   if (res.ok) return res;
   const body = await res.text();
   let message = body || res.statusText;

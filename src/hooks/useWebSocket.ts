@@ -1,81 +1,109 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export type WsStatus = 'connecting' | 'connected' | 'disconnected';
 
 interface UseWebSocketOptions {
-  onMessage: (event: MessageEvent) => void;
+  url: string;
   enabled: boolean;
+  onMessage: (data: unknown) => void;
+  /** Called with every connection, also the first one. */
+  onOpen?: () => void;
 }
 
-export function useWebSocket({ onMessage, enabled }: UseWebSocketOptions) {
-  const [status, setStatus] = useState<WsStatus>('disconnected');
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const attemptRef = useRef(0);
-  const enabledRef = useRef(enabled);
-  enabledRef.current = enabled;
+const MAX_DELAY_MS = 30_000;
+/** A connection that lasts shorter than this counts as failed, for the delay of the next one. */
+const LASTING_MS = 10_000;
+/** A server that sends heartbeats does so every 15 seconds. */
+const SILENCE_MS = 35_000;
 
-  const onMessageRef = useRef(onMessage);
-  onMessageRef.current = onMessage;
+const HEARTBEAT = 'ws.heartbeat';
 
-  const connect = useCallback(() => {
-    if (!enabledRef.current) return;
-    if (
-      wsRef.current?.readyState === WebSocket.OPEN ||
-      wsRef.current?.readyState === WebSocket.CONNECTING
-    )
-      return;
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${protocol}//${window.location.host}/api/ws`;
-
-    setStatus('connecting');
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      setStatus('connected');
-      attemptRef.current = 0;
-    };
-
-    ws.onmessage = (e) => onMessageRef.current(e);
-
-    ws.onclose = () => {
-      setStatus('disconnected');
-      wsRef.current = null;
-      if (enabledRef.current) {
-        const delay = Math.min(1000 * Math.pow(2, attemptRef.current), 30000);
-        attemptRef.current++;
-        // eslint-disable-next-line react-hooks/immutability
-        reconnectTimerRef.current = setTimeout(connect, delay);
-      }
-    };
-
-    ws.onerror = () => {
-      // onclose fires after onerror, which handles reconnection.
-    };
-  }, []);
+/** A WebSocket that is opened again when it closes, or when a server that sends heartbeats stops to. */
+export function useWebSocket({ url, enabled, onMessage, onOpen }: UseWebSocketOptions) {
+  const [status, setStatus] = useState<WsStatus>('connecting');
+  const handlers = useRef({ onMessage, onOpen });
+  useEffect(() => {
+    handlers.current = { onMessage, onOpen };
+  });
 
   useEffect(() => {
-    if (enabled) {
-      connect();
-    } else {
-      if (wsRef.current) {
-        wsRef.current.close(1000, 'disabled by user');
-        wsRef.current = null;
-      }
+    if (!enabled) return;
+    // All of this belongs to this run of the effect. A socket that has been replaced has no
+    // say any more, however late it closes.
+    let current: WebSocket | null = null;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let silence: ReturnType<typeof setTimeout> | undefined;
+    let attempt = 0;
+    let openedAt = 0;
+
+    function drop(ws: WebSocket) {
+      if (current !== ws) return;
+      current = null;
+      clearTimeout(silence);
       setStatus('disconnected');
-      attemptRef.current = 0;
+      if (openedAt && Date.now() - openedAt > LASTING_MS) attempt = 0;
+      openedAt = 0;
+      // Not all tabs at once.
+      const delay = Math.min(1000 * 2 ** attempt++, MAX_DELAY_MS) * (0.5 + Math.random() / 2);
+      retry = setTimeout(connect, delay);
     }
 
-    return () => {
-      if (reconnectTimerRef.current) clearTimeout(reconnectTimerRef.current);
-      if (wsRef.current) {
-        wsRef.current.close(1000, 'component unmount');
-        wsRef.current = null;
-      }
-    };
-  }, [enabled, connect]);
+    function connect() {
+      setStatus('connecting');
+      const ws = new WebSocket(url);
+      current = ws;
+      let beats = false;
+      const listen = () => {
+        clearTimeout(silence);
+        if (beats) {
+          silence = setTimeout(() => {
+            drop(ws);
+            ws.close();
+          }, SILENCE_MS);
+        }
+      };
+      ws.onopen = () => {
+        if (current !== ws) return;
+        openedAt = Date.now();
+        setStatus('connected');
+        handlers.current.onOpen?.();
+      };
+      ws.onmessage = (e) => {
+        if (current !== ws) return;
+        let data: unknown;
+        try {
+          data = JSON.parse(String(e.data));
+        } catch {
+          return;
+        }
+        const beat = (data as { type?: unknown } | null)?.type === HEARTBEAT;
+        beats ||= beat;
+        listen();
+        if (!beat) handlers.current.onMessage(data);
+      };
+      ws.onclose = () => drop(ws);
+    }
 
-  return { status };
+    function wake() {
+      if (document.visibilityState !== 'visible' || current) return;
+      clearTimeout(retry);
+      attempt = 0;
+      connect();
+    }
+
+    connect();
+    window.addEventListener('online', wake);
+    document.addEventListener('visibilitychange', wake);
+    return () => {
+      window.removeEventListener('online', wake);
+      document.removeEventListener('visibilitychange', wake);
+      clearTimeout(retry);
+      clearTimeout(silence);
+      const ws = current;
+      current = null; // before it closes
+      ws?.close(1000);
+    };
+  }, [url, enabled]);
+
+  return { status: enabled ? status : 'disconnected' as WsStatus };
 }
