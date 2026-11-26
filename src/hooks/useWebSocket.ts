@@ -25,19 +25,19 @@ const SILENCE_MS = 35_000;
 const SUSPECT_MS = 17_000;
 
 const HEARTBEAT = 'ws.heartbeat';
+const RESYNC = 'ws.resync';
 /**
- * The field of a heartbeat that says when the server sent it (RFC 3339), if it does. dureq is
- * to have it from v0.3.3; the name is to be settled with it. Without it, nothing is late.
+ * When the server wrote a heartbeat or a resync, in milliseconds since 1970 by its clock, from
+ * dureq v0.3.3. Events have no such field. Without it, nothing is late.
  */
-const BEAT_SENT = 'sent_at';
+const BEAT_SENT = 'server_time_ms';
 /** What comes this much later than it would on time is late: a heartbeat period. */
 const LATE_MS = 15_000;
 
-/** When a heartbeat was sent, if it says. */
-function sentAt(beat: unknown): number | undefined {
-  const v = (beat as Record<string, unknown>)[BEAT_SENT];
-  const t = typeof v === 'string' ? Date.parse(v) : NaN;
-  return Number.isFinite(t) ? t : undefined;
+/** When a heartbeat or a resync was written, if it says. */
+function sentAt(frame: unknown): number | undefined {
+  const v = (frame as Record<string, unknown>)[BEAT_SENT];
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
 }
 
 /** A WebSocket that is opened again when it closes, or when a server that sends heartbeats stops to. */
@@ -60,7 +60,7 @@ export function useWebSocket({ url, enabled, onMessage, onOpen, onLost }: UseWeb
     // Of the current socket: when it was heard of last, and whether its server sends heartbeats.
     let heardAt = 0;
     let beats = false;
-    // How long the quickest of its heartbeats took, clocks apart, and whether they are late.
+    // How long the quickest of its heartbeats and resyncs took, clocks apart, and whether they are late.
     let quickest = Infinity;
     let late = false;
 
@@ -133,11 +133,12 @@ export function useWebSocket({ url, enabled, onMessage, onOpen, onLost }: UseWeb
         } catch {
           return;
         }
-        const beat = (data as { type?: unknown } | null)?.type === HEARTBEAT;
+        const type = (data as { type?: unknown } | null)?.type;
+        const beat = type === HEARTBEAT;
         beats ||= beat;
         listen();
-        if (beat) timeBeat(data);
-        else handlers.current.onMessage(data);
+        if (beat || type === RESYNC) timeBeat(data);
+        if (!beat) handlers.current.onMessage(data);
       };
       ws.onclose = () => drop(ws);
     }
