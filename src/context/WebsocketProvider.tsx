@@ -43,7 +43,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     if (missed.current) {
       missed.current = false;
       // As often as that may come, it costs no more than polling.
-      refresher.markAll(pollMs.current);
+      refresher.markAll({ floor: pollMs.current });
       return;
     }
     apply(events, pollOff.current);
@@ -67,8 +67,9 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     [flush],
   );
 
-  // What has happened while there was no connection is not announced any more.
-  const onOpen = useCallback(() => refresher.markAll(), [refresher]);
+  // What has happened while there was no connection is not announced any more. It is read
+  // right away, however recently it was read before.
+  const onOpen = useCallback(() => refresher.markAll({ now: true }), [refresher]);
 
   useEffect(
     () => () => {

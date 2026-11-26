@@ -28,10 +28,11 @@ export interface Refresher {
   /** Has what is on screen of a key read again: soon, and once after what is being read now. */
   mark: (key: QueryKey) => void;
   /**
-   * Has everything on screen read again, as events may have been missed, but not sooner after
-   * the last time than floor: what is polled is not read more often than polling would.
+   * Has everything on screen read again, as events may have been missed: now, after a
+   * connection, or else not sooner after the last time than floor, so that what is polled is
+   * not read more often than polling would.
    */
-  markAll: (floor?: number) => void;
+  markAll: (how?: { now?: boolean; floor?: number }) => void;
   stop: () => void;
 }
 
@@ -41,6 +42,8 @@ interface Dirty {
   at: number;
   /** By an event, which says that something has changed. */
   event: boolean;
+  /** Whatever the budget. */
+  now: boolean;
   floor: number;
 }
 
@@ -84,7 +87,7 @@ export function createRefresher(qc: QueryClient): Refresher {
 
   function dueAt(id: string, d: Dirty): number {
     const l = last.get(id);
-    if (!l) return 0;
+    if (!l || d.now) return 0;
     const floor = d.event ? 0 : d.floor;
     return l.at + Math.max(BUDGET_MS[String(d.key[0])] ?? DEFAULT_BUDGET_MS, 2 * l.took, floor);
   }
@@ -126,7 +129,7 @@ export function createRefresher(qc: QueryClient): Refresher {
   function put(key: QueryKey, change: (d: Dirty) => void) {
     watch();
     const id = JSON.stringify(key);
-    const d = dirty.get(id) ?? { key, at: 0, event: false, floor: 0 };
+    const d = dirty.get(id) ?? { key, at: 0, event: false, now: false, floor: 0 };
     d.at = Date.now();
     change(d);
     dirty.set(id, d);
@@ -140,10 +143,11 @@ export function createRefresher(qc: QueryClient): Refresher {
         d.event = true;
       });
     },
-    markAll(floor = 0) {
+    markAll({ now = false, floor = 0 } = {}) {
       for (const { queryKey } of qc.getQueryCache().findAll({ type: 'active' })) {
         if (ON_DEMAND.has(String(queryKey[0]))) continue;
         put(queryKey, (d) => {
+          d.now ||= now;
           d.floor = Math.max(d.floor, floor);
         });
       }
