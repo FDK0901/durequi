@@ -293,9 +293,13 @@ export function useRetryWorkflow() {
   });
 }
 
-export function useWorkflowTaskResult(wfId: string, taskName: string) {
+/**
+ * The result of a task, as of when the task was in the state given: it is read again when the
+ * task has ended. A task that has none yet, or whose result has expired, has a 404.
+ */
+export function useWorkflowTaskResult(wfId: string, taskName: string, taskState = '') {
   return useQuery({
-    queryKey: ['workflowTaskResult', wfId, taskName],
+    queryKey: ['workflowTaskResult', wfId, taskName, taskState],
     queryFn: () => api.getWorkflowTaskResult(wfId, taskName),
     enabled: !!wfId && !!taskName,
     retry: false,

@@ -5,7 +5,7 @@ import { useSettings } from '../context/useSettings';
 import { useNow } from '../context/useNow';
 import { timeAgo, formatCountdown, formatMs, isBlocking } from '../util';
 import { JsonView } from '../components/JsonView';
-import type { WorkflowInstance, WorkflowTaskDef, WorkflowTaskState } from '../api';
+import { ApiError, type WorkflowInstance, type WorkflowTaskDef, type WorkflowTaskState } from '../api';
 import { StaleNote } from '../components/Freshness';
 
 // --- DAG layout helpers ---
@@ -556,10 +556,14 @@ function ExecutionTimeline({ wf }: { wf: WorkflowInstance }) {
 
 function TaskDetailSidebar({ wf, taskName, onClose }: { wf: WorkflowInstance; taskName: string; onClose: () => void }) {
   const navigate = useNavigate();
-  const state = wf.tasks?.[taskName];
   const def = wf.definition.tasks.find((d) => d.name === taskName);
   const [showOutput, setShowOutput] = useState(false);
-  const { data: taskResult } = useWorkflowTaskResult(showOutput ? wf.id : '', showOutput ? taskName : '');
+  const state = wf.tasks?.[taskName];
+  const { data: taskResult, error: resultError } = useWorkflowTaskResult(
+    showOutput ? wf.id : '',
+    showOutput ? taskName : '',
+    `${state?.status} ${state?.finished_at ?? ''}`,
+  );
 
   if (!state) return null;
 
@@ -682,11 +686,22 @@ function TaskDetailSidebar({ wf, taskName, onClose }: { wf: WorkflowInstance; ta
         <button className="btn" style={{ marginTop: '1rem' }} onClick={() => setShowOutput(true)}>
           View Output
         </button>
+      ) : resultError instanceof ApiError && resultError.status === 404 ? (
+        // Read again when the task has ended. What was read before has gone, if anything.
+        <p className="muted" style={{ marginTop: '1rem' }}>
+          {state.finished_at ? 'No output: there is none, or it has expired.' : 'No output yet.'}
+        </p>
       ) : taskResult ? (
-        <div style={{ marginTop: '1rem' }}>
-          <h4 style={{ color: 'var(--ink-2)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Output</h4>
-          <JsonView data={taskResult.output} />
-        </div>
+        taskResult.output == null ? (
+          <p className="muted" style={{ marginTop: '1rem' }}>It ended without an output.</p>
+        ) : (
+          <div style={{ marginTop: '1rem' }}>
+            <h4 style={{ color: 'var(--ink-2)', fontSize: '0.85rem', marginBottom: '0.5rem' }}>Output</h4>
+            <JsonView data={taskResult.output} />
+          </div>
+        )
+      ) : resultError ? (
+        <p className="error-text" style={{ marginTop: '1rem' }}>The output could not be read: {resultError.message}</p>
       ) : (
         <p className="muted" style={{ marginTop: '1rem' }}>Loading output...</p>
       )}
