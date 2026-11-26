@@ -28,19 +28,16 @@ export default function RootLayout() {
   const statusColor =
     status === 'connected'
       ? '#4ade80'
-      : status === 'connecting'
+      : status === 'connecting' || status === 'late'
         ? '#facc15'
         : '#6b7280';
-  const statusLabel =
-    status === 'connected'
-      ? 'Live'
-      : status === 'connecting'
-        ? 'Connecting...'
-        : status === 'offline'
-          ? 'Offline'
-          : refreshInterval
-          ? 'Polling'
-          : 'Not refreshing';
+  const statusLabel = {
+    connected: 'Live',
+    late: 'Live, but late',
+    connecting: 'Connecting...',
+    offline: 'Offline',
+    disconnected: refreshInterval ? 'Polling' : 'Not refreshing',
+  }[status];
 
   return (
     <div className="app">

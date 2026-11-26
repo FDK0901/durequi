@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
-export type WsStatus = 'connecting' | 'connected' | 'disconnected' | 'offline';
+/** late: open, but what comes is late (see BEAT_SENT). */
+export type WsStatus = 'connecting' | 'connected' | 'late' | 'disconnected' | 'offline';
 
 interface UseWebSocketOptions {
   url: string;
@@ -24,6 +25,20 @@ const SILENCE_MS = 35_000;
 const SUSPECT_MS = 17_000;
 
 const HEARTBEAT = 'ws.heartbeat';
+/**
+ * The field of a heartbeat that says when the server sent it (RFC 3339), if it does. dureq is
+ * to have it from v0.3.3; the name is to be settled with it. Without it, nothing is late.
+ */
+const BEAT_SENT = 'sent_at';
+/** What comes this much later than it would on time is late: a heartbeat period. */
+const LATE_MS = 15_000;
+
+/** When a heartbeat was sent, if it says. */
+function sentAt(beat: unknown): number | undefined {
+  const v = (beat as Record<string, unknown>)[BEAT_SENT];
+  const t = typeof v === 'string' ? Date.parse(v) : NaN;
+  return Number.isFinite(t) ? t : undefined;
+}
 
 /** A WebSocket that is opened again when it closes, or when a server that sends heartbeats stops to. */
 export function useWebSocket({ url, enabled, onMessage, onOpen, onLost }: UseWebSocketOptions) {
@@ -45,6 +60,20 @@ export function useWebSocket({ url, enabled, onMessage, onOpen, onLost }: UseWeb
     // Of the current socket: when it was heard of last, and whether its server sends heartbeats.
     let heardAt = 0;
     let beats = false;
+    // How long the quickest of its heartbeats took, clocks apart, and whether they are late.
+    let quickest = Infinity;
+    let late = false;
+
+    /** The clocks of server and browser need not agree: what counts is how much later than the quickest. */
+    function timeBeat(data: unknown) {
+      const sent = sentAt(data);
+      if (sent === undefined) return;
+      const took = Date.now() - sent;
+      quickest = Math.min(quickest, took);
+      if (late === took - quickest > LATE_MS) return;
+      late = !late;
+      setStatus(late ? 'late' : 'connected');
+    }
 
     function drop(ws: WebSocket) {
       if (current !== ws) return;
@@ -77,6 +106,8 @@ export function useWebSocket({ url, enabled, onMessage, onOpen, onLost }: UseWeb
       setStatus('connecting');
       current = ws;
       beats = false;
+      quickest = Infinity;
+      late = false;
       const listen = () => {
         heardAt = Date.now();
         clearTimeout(silence);
@@ -105,7 +136,8 @@ export function useWebSocket({ url, enabled, onMessage, onOpen, onLost }: UseWeb
         const beat = (data as { type?: unknown } | null)?.type === HEARTBEAT;
         beats ||= beat;
         listen();
-        if (!beat) handlers.current.onMessage(data);
+        if (beat) timeBeat(data);
+        else handlers.current.onMessage(data);
       };
       ws.onclose = () => drop(ws);
     }
