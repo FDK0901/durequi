@@ -49,8 +49,17 @@ export function useWebSocket({ url, enabled, onMessage, onOpen }: UseWebSocketOp
     }
 
     function connect() {
+      let ws: WebSocket;
+      try {
+        ws = new WebSocket(url);
+      } catch (e) {
+        // Such as an http API for an https page. That does not change by trying again: what
+        // events would announce is polled instead.
+        console.error('The WebSocket cannot be opened:', e);
+        setStatus('disconnected');
+        return;
+      }
       setStatus('connecting');
-      const ws = new WebSocket(url);
       current = ws;
       let beats = false;
       const listen = () => {
