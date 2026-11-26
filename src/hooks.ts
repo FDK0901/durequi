@@ -4,12 +4,23 @@ import { api, type ListParams, type JobListParams, type HistoryRunParams, type E
 import { useWebSocketStatus } from './context/useWebsocketStatus';
 import { useSettings } from './context/useSettings';
 
-/** For data that events announce: no polling while the WebSocket is live. */
-function useRefetchInterval() {
+// How each kind of data is kept up to date:
+//
+//   events (see context/WebsocketProvider.tsx), and slowly, as events get lost: jobs, runs, workflows,
+//     batches, audit trails, the DLQ, daily stats
+//   regularly, as it changes without an event: stats, nodes, queues, active runs, schedules,
+//     progress, groups, signals, sync retries
+//   when asked for: event history, search, unique keys, locks, Redis
+
+/** While the WebSocket is live, what events announce is still read that often, just in case. */
+const SAFETY_MS = 30_000;
+
+/** For data that events announce. */
+function useRefetchInterval(whileLive = SAFETY_MS) {
   const { refreshInterval } = useSettings();
   const { status } = useWebSocketStatus();
-  if (status === 'connected') return false;
-  return refreshInterval || false;
+  if (!refreshInterval) return false;
+  return status === 'connected' ? Math.max(refreshInterval, whileLive) : refreshInterval;
 }
 
 /** For data that changes without an event, such as heartbeats, queues and progress. */
@@ -110,7 +121,7 @@ export function useSchedules(params: ListParams = {}) {
 }
 
 export function useDLQ(params: ListParams = {}) {
-  const refetchInterval = usePollInterval();
+  const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: ['dlq', params],
     queryFn: () => api.listDLQ(params),
@@ -150,11 +161,13 @@ export function useHistoryRuns(params: HistoryRunParams = {}) {
 
 /** A run by its ID, active or finished. */
 export function useRun(id: string) {
+  const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: ['run', id],
     queryFn: () => api.getRun(id),
     enabled: !!id,
     retry: false,
+    refetchInterval,
   });
 }
 
@@ -408,7 +421,7 @@ export function useResumeQueue() {
 // --- Daily Stats ---
 
 export function useDailyStats(days = 30) {
-  const refetchInterval = useRefetchInterval();
+  const refetchInterval = useRefetchInterval(5 * 60_000);
   return useQuery({
     queryKey: ['dailyStats', days],
     queryFn: () => api.getDailyStats(days),
@@ -543,10 +556,12 @@ export function useJobAuditTrail(jobId: string) {
 }
 
 export function useAuditCounts(ids: string[]) {
+  const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: ['auditCounts', ids],
     queryFn: () => api.getAuditCounts(ids),
     enabled: ids.length > 0,
+    refetchInterval,
   });
 }
 

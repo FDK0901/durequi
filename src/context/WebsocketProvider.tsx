@@ -9,6 +9,8 @@ import { useSettings } from './useSettings';
 
 const FLUSH_MS = 1000;
 
+const RESYNC = 'ws.resync';
+
 function asEvent(data: unknown): JobEvent | null {
   return typeof (data as JobEvent | null)?.type === 'string' ? (data as JobEvent) : null;
 }
@@ -86,10 +88,14 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     (data: unknown) => {
       const event = asEvent(data);
       if (!event) return; // Not an event — ignore.
+      if (event.type === RESYNC) {
+        readAll(); // events have been missed
+        return;
+      }
       pending.current.push(event);
       timer.current ??= setTimeout(flush, FLUSH_MS);
     },
-    [flush],
+    [flush, readAll],
   );
 
   useEffect(() => () => {
