@@ -12,17 +12,26 @@ const JOB_KEYS = new Set(['job.dead', 'job.failed', 'job.cancelled', 'job.paused
 
 type Row = { id: string };
 
-/** Changes rows of the lists on screen, without making them look newly read. */
-function patchRows<T extends Row>(qc: QueryClient, refresher: Refresher, kind: ListKind, change: (row: T) => T) {
+/**
+ * Changes rows of the lists on screen, without making them look newly read. A row that change
+ * cannot tell (undefined) is kept, and its list read again.
+ */
+function patchRows<T extends Row>(qc: QueryClient, refresher: Refresher, kind: ListKind, change: (row: T) => T | undefined) {
   for (const query of qc.getQueryCache().findAll({ queryKey: [kind], type: 'active' })) {
     const page = query.state.data as Paginated<T> | undefined;
     if (!page?.data) continue;
-    const rows = page.data.map(change);
+    let unsure = false;
+    const rows = page.data.map((row) => {
+      const changed = change(row);
+      if (changed) return changed;
+      unsure = true;
+      return row;
+    });
     if (rows.some((row, i) => row !== page.data![i])) {
       qc.setQueryData(query.queryKey, { ...page, data: rows }, { updatedAt: query.state.dataUpdatedAt });
     }
     // What is on its way may be older.
-    if (query.state.fetchStatus !== 'idle') refresher.mark(query.queryKey);
+    if (unsure || query.state.fetchStatus !== 'idle') refresher.mark(query.queryKey);
   }
 }
 
@@ -43,8 +52,20 @@ function markLeftRows(qc: QueryClient, refresher: Refresher, changed: Map<string
   }
 }
 
-function withProgress(b: BatchInstance, { done, failed, total }: BatchProgress): BatchInstance {
+/** Whether it has the numbers it should have. */
+function isProgress(p: unknown): p is BatchProgress {
+  const { done, failed, total } = (p ?? {}) as Partial<Record<keyof BatchProgress, unknown>>;
+  return [done, failed, total].every((n) => typeof n === 'number' && Number.isFinite(n));
+}
+
+/**
+ * The counters of a batch as a progress says, or undefined if it says fewer have ended than
+ * are shown: a progress older than what was read, or a retry that has started items anew; the
+ * two look alike. What the server has is read then.
+ */
+function withProgress(b: BatchInstance, { done, failed, total }: BatchProgress): BatchInstance | undefined {
   if (b.completed_items + b.failed_items === done && b.failed_items === failed && b.total_items === total) return b;
+  if (done < b.completed_items + b.failed_items || failed < b.failed_items) return undefined;
   // It does not say how many of those that are left are running.
   const running = Math.min(b.running_items, Math.max(0, total - done));
   return {
@@ -147,15 +168,18 @@ export function createEventHandler(qc: QueryClient, refresher: Refresher) {
         if (workflows.has(wf)) mark(['workflows']);
         else others.workflows.add(wf);
       } else if (type.startsWith('batch.')) {
-        const progress = e.batch_progress;
+        // One that does not have the numbers is taken as one that has none.
+        const progress = isProgress(e.batch_progress) ? e.batch_progress : undefined;
         const batch = progress?.batch_id ?? id;
         if (!batch) return;
         if (progress) {
-          const change = (b: BatchInstance) => (b.id === batch ? withProgress(b, progress) : b);
-          patchRows<BatchInstance>(qc, refresher, 'batches', change);
+          patchRows<BatchInstance>(qc, refresher, 'batches', (b) => (b.id === batch ? withProgress(b, progress) : b));
           const detail = qc.getQueryState<BatchInstance>(['batch', batch]);
-          if (detail?.data) qc.setQueryData(['batch', batch], change(detail.data), { updatedAt: detail.dataUpdatedAt });
-          if (detail?.data && detail.fetchStatus !== 'idle') mark(['batch', batch]);
+          if (detail?.data) {
+            const changed = withProgress(detail.data, progress);
+            if (changed && changed !== detail.data) qc.setQueryData(['batch', batch], changed, { updatedAt: detail.dataUpdatedAt });
+            if (!changed || detail.fetchStatus !== 'idle') mark(['batch', batch]);
+          }
           return;
         }
         markOne('batch', batch);
