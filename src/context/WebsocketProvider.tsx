@@ -28,8 +28,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const missed = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollOff = useRef(false);
+  const pollMs = useRef(0);
   useEffect(() => {
     pollOff.current = !refreshInterval;
+    pollMs.current = refreshInterval;
   }, [refreshInterval]);
 
   // A busy cluster sends many events a second. They are collected for a moment.
@@ -40,7 +42,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     addEvents(events);
     if (missed.current) {
       missed.current = false;
-      refresher.markAll();
+      // As often as that may come, it costs no more than polling without the WebSocket.
+      refresher.markAll({ floor: pollMs.current });
       return;
     }
     apply(events, pollOff.current);
@@ -64,8 +67,9 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     [flush],
   );
 
-  // What has happened while there was no connection is not announced any more.
-  const onOpen = useCallback(() => refresher.markAll(), [refresher]);
+  // What has happened while there was no connection is not announced any more. It is read
+  // right away, however recently it was read before.
+  const onOpen = useCallback(() => refresher.markAll({ now: true }), [refresher]);
 
   useEffect(
     () => () => {

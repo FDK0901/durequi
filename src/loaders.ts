@@ -100,3 +100,41 @@ export async function loadJobRuns(jobId: string, limit: number): Promise<JobRun[
   }
   return (await load(jobId)) ?? [];
 }
+
+// Of the runs of a job that a list has read, only the newest are read again, and those known
+// after them kept. All are read now and then, as older runs change too: they are removed, or
+// go on under their ID when they are retried.
+const NEWEST = 20;
+const ALL_MS = 30_000;
+const MAX_REMEMBERED = 1000;
+const readAllAt = new Map<string, number>();
+
+/** The last runs of a job, newest first. Of those known, only what is new is read. */
+export async function loadNewRuns(jobId: string, limit: number, known: JobRun[] | undefined): Promise<JobRun[]> {
+  const id = `${limit} ${jobId}`;
+  const at = readAllAt.get(id);
+  if (known && at !== undefined && limit > NEWEST && Date.now() - at < ALL_MS) {
+    const runs = join(await loadJobRuns(jobId, NEWEST), known, limit);
+    if (runs) return runs;
+  }
+  const runs = await loadJobRuns(jobId, limit);
+  readAllAt.delete(id); // so that what is used last is at the end
+  readAllAt.set(id, Date.now());
+  for (const key of readAllAt.keys()) {
+    if (readAllAt.size <= MAX_REMEMBERED) break;
+    readAllAt.delete(key);
+  }
+  return runs;
+}
+
+/** The newest runs, and the known ones after them, if the two meet. */
+function join(newest: JobRun[], known: JobRun[], limit: number): JobRun[] | undefined {
+  if (newest.length < NEWEST) return newest; // all there are
+  const i = known.findIndex((run) => run.id === newest[newest.length - 1].id);
+  return i < 0 ? undefined : [...newest, ...known.slice(i + 1)].slice(0, limit);
+}
+
+/** Has all runs read the next time, after some have been removed. */
+export function forgetRuns() {
+  readAllAt.clear();
+}

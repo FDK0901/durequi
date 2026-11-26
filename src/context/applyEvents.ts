@@ -1,5 +1,5 @@
 import type { Query, QueryClient, QueryKey } from '@tanstack/react-query';
-import type { BatchInstance, BatchProgress, Job, JobEvent, Paginated } from '../api';
+import type { BatchInstance, BatchProgress, Job, JobEvent, JobListParams, Paginated } from '../api';
 import { loadJobs, readsManyAtOnce } from '../loaders';
 import type { Refresher } from './refresh';
 import { noteOtherChanges, type ListKind } from './otherChanges';
@@ -12,22 +12,60 @@ const JOB_KEYS = new Set(['job.dead', 'job.failed', 'job.cancelled', 'job.paused
 
 type Row = { id: string };
 
-/** Changes rows of the lists on screen, without making them look newly read. */
-function patchRows<T extends Row>(qc: QueryClient, refresher: Refresher, kind: ListKind, change: (row: T) => T) {
+/**
+ * Changes rows of the lists on screen, without making them look newly read. A row that change
+ * cannot tell (undefined) is kept, and its list read again.
+ */
+function patchRows<T extends Row>(qc: QueryClient, refresher: Refresher, kind: ListKind, change: (row: T) => T | undefined) {
   for (const query of qc.getQueryCache().findAll({ queryKey: [kind], type: 'active' })) {
     const page = query.state.data as Paginated<T> | undefined;
     if (!page?.data) continue;
-    const rows = page.data.map(change);
+    let unsure = false;
+    const rows = page.data.map((row) => {
+      const changed = change(row);
+      if (changed) return changed;
+      unsure = true;
+      return row;
+    });
     if (rows.some((row, i) => row !== page.data![i])) {
       qc.setQueryData(query.queryKey, { ...page, data: rows }, { updatedAt: query.state.dataUpdatedAt });
     }
     // What is on its way may be older.
-    if (query.state.fetchStatus !== 'idle') refresher.mark(query.queryKey);
+    if (unsure || query.state.fetchStatus !== 'idle') refresher.mark(query.queryKey);
   }
 }
 
-function withProgress(b: BatchInstance, { done, failed, total }: BatchProgress): BatchInstance {
+/** Whether a job is one that a list asks for. The API filters by the first of these given. */
+function fits(params: JobListParams | undefined, job: Job): boolean {
+  if (params?.status) return job.status === params.status;
+  if (params?.task_type) return job.task_type === params.task_type;
+  if (params?.tag) return job.tags?.includes(params.tag) ?? false;
+  return true;
+}
+
+/** Lists of jobs that show a row that is no longer what they ask for, and so have other rows now. */
+function markLeftRows(qc: QueryClient, refresher: Refresher, changed: Map<string, Job>) {
+  for (const query of qc.getQueryCache().findAll({ queryKey: ['jobs'], type: 'active' })) {
+    const params = query.queryKey[1] as JobListParams | undefined;
+    const rows = (query.state.data as Paginated<Job> | undefined)?.data ?? [];
+    if (rows.some((row) => changed.has(row.id) && !fits(params, row))) refresher.mark(query.queryKey);
+  }
+}
+
+/** Whether it has the numbers it should have. */
+function isProgress(p: unknown): p is BatchProgress {
+  const { done, failed, total } = (p ?? {}) as Partial<Record<keyof BatchProgress, unknown>>;
+  return [done, failed, total].every((n) => typeof n === 'number' && Number.isFinite(n));
+}
+
+/**
+ * The counters of a batch as a progress says, or undefined if it says fewer have ended than
+ * are shown: a progress older than what was read, or a retry that has started items anew; the
+ * two look alike. What the server has is read then.
+ */
+function withProgress(b: BatchInstance, { done, failed, total }: BatchProgress): BatchInstance | undefined {
   if (b.completed_items + b.failed_items === done && b.failed_items === failed && b.total_items === total) return b;
+  if (done < b.completed_items + b.failed_items || failed < b.failed_items) return undefined;
   // It does not say how many of those that are left are running.
   const running = Math.min(b.running_items, Math.max(0, total - done));
   return {
@@ -69,6 +107,7 @@ export function createEventHandler(qc: QueryClient, refresher: Refresher) {
     try {
       const jobs = await loadJobs(ids);
       patchRows<Job>(qc, refresher, 'jobs', (row) => jobs.get(row.id) ?? row);
+      markLeftRows(qc, refresher, jobs);
       if (ids.some((id) => !jobs.has(id))) refresher.mark(['jobs']); // deleted
     } catch {
       refresher.mark(['jobs']);
@@ -103,11 +142,16 @@ export function createEventHandler(qc: QueryClient, refresher: Refresher) {
     const batches = shown('batches');
     const others: Record<ListKind, Set<string>> = { jobs: new Set(), workflows: new Set(), batches: new Set() };
     const changedRows = new Set<string>();
-
+    // Batches whose counters come with these events.
+    const progressed = new Set<unknown>();
     for (const e of events) {
+      if (isProgress(e.batch_progress)) progressed.add(e.batch_progress.batch_id ?? e.job_id);
+    }
+
+    const one = (e: JobEvent) => {
       const { type, job_id: id } = e;
       if (type.startsWith('job.')) {
-        if (!id) continue;
+        if (!id) return;
         for (const root of ['job', 'jobRuns', 'jobAudit']) markOne(root, id);
         if (e.workflow_id) markOne('workflow', e.workflow_id);
         if (jobs.has(id)) changedRows.add(id);
@@ -122,27 +166,33 @@ export function createEventHandler(qc: QueryClient, refresher: Refresher) {
         if (JOB_KEYS.has(type) && type !== 'job.failed') mark(['schedules']);
       } else if (type.startsWith('workflow.')) {
         const wf = e.workflow_id ?? id;
-        if (!wf) continue;
+        if (!wf) return;
         markOne('workflow', wf);
         markOne('workflowAudit', wf);
         markOne('workflowSignalStats', wf);
         if (workflows.has(wf)) mark(['workflows']);
         else others.workflows.add(wf);
       } else if (type.startsWith('batch.')) {
-        const progress = e.batch_progress;
+        // One that does not have the numbers is taken as one that has none.
+        const progress = isProgress(e.batch_progress) ? e.batch_progress : undefined;
         const batch = progress?.batch_id ?? id;
-        if (!batch) continue;
+        if (!batch) return;
         if (progress) {
-          const change = (b: BatchInstance) => (b.id === batch ? withProgress(b, progress) : b);
-          patchRows<BatchInstance>(qc, refresher, 'batches', change);
+          patchRows<BatchInstance>(qc, refresher, 'batches', (b) => (b.id === batch ? withProgress(b, progress) : b));
           const detail = qc.getQueryState<BatchInstance>(['batch', batch]);
-          if (detail?.data) qc.setQueryData(['batch', batch], change(detail.data), { updatedAt: detail.dataUpdatedAt });
-          if (detail?.data && detail.fetchStatus !== 'idle') mark(['batch', batch]);
-          continue;
+          if (detail?.data) {
+            const changed = withProgress(detail.data, progress);
+            if (changed && changed !== detail.data) qc.setQueryData(['batch', batch], changed, { updatedAt: detail.dataUpdatedAt });
+            if (!changed || detail.fetchStatus !== 'idle') mark(['batch', batch]);
+          }
+          return;
         }
         markOne('batch', batch);
-        markOne('batchResults', batch);
-        if (type.startsWith('batch.item.') || type.startsWith('batch.onetime.')) continue; // the progress says it
+        const item = type.startsWith('batch.item.');
+        // Of an item, the batch has its state. All results are read again when the batch has
+        // ended, or is retried: not for each item, if the progress says how far it is.
+        if (!(item && progressed.has(batch))) markOne('batchResults', batch);
+        if (item || type.startsWith('batch.onetime.')) return; // the progress says it
         if (batches.has(batch)) mark(['batches']);
         else others.batches.add(batch);
       } else if (type.startsWith('node.')) {
@@ -153,6 +203,13 @@ export function createEventHandler(qc: QueryClient, refresher: Refresher) {
         if (id) markOne('job', id);
       }
       if (e.run_id) markOne('run', e.run_id);
+    };
+    for (const e of events) {
+      try {
+        one(e);
+      } catch {
+        // One that is not what it should be is left out, and not the others with it.
+      }
     }
     if (pollOff && events.length > 0) {
       for (const root of ['stats', 'activeRuns', 'nodes', 'queues']) mark([root]);
