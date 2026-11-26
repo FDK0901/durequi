@@ -1,6 +1,6 @@
 import { useQuery, useQueries, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { loadJob, loadJobRuns } from './loaders';
-import { api, type ListParams, type NodeInfo, type JobListParams, type HistoryRunParams, type EventParams, type JobSearchParams } from './api';
+import { forgetRuns, loadJob, loadJobRuns, loadNewRuns } from './loaders';
+import { api, type ListParams, type NodeInfo, type JobListParams, type HistoryRunParams, type EventParams, type JobSearchParams, type JobRun } from './api';
 
 import { useWebSocketStatus } from './context/useWebsocketStatus';
 import { useSettings } from './context/useSettings';
@@ -80,13 +80,13 @@ export function useJobRuns(jobId: string, limit = 50) {
   });
 }
 
-/** Recent runs, newest first, by job ID. */
+/** Recent runs, newest first, by job ID. Once read, mostly only the newest are read again. */
 export function useRunsOfJobs(ids: string[], limit = 100) {
   const refetchInterval = useRefetchInterval();
   return useQueries({
     queries: ids.map((id) => ({
       queryKey: ['jobRuns', id, limit],
-      queryFn: () => loadJobRuns(id, limit),
+      queryFn: ({ client, queryKey }) => loadNewRuns(id, limit, client.getQueryData<JobRun[]>(queryKey)),
       refetchInterval,
     })),
     combine: (results) => new Map(results.map((res, i) => [ids[i], res.data ?? []])),
@@ -177,6 +177,7 @@ export function useCleanupRunHistory() {
   return useMutation({
     mutationFn: (days: number) => api.cleanupRunHistory(days),
     onSuccess: () => {
+      forgetRuns();
       for (const key of ['historyRuns', 'jobRuns', 'run']) qc.invalidateQueries({ queryKey: [key] });
     },
     meta: { done: (res: unknown) => `${(res as { removed: number }).removed.toLocaleString()} runs removed` },
