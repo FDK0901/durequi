@@ -339,8 +339,40 @@ export class TimeoutError extends Error {
   }
 }
 
-/** Sends a request and reads its answer, both within the time given. */
-async function request<T>(path: string, init: RequestInit, read: (res: Response) => Promise<T>, ms = READ_TIMEOUT_MS): Promise<T> {
+// Right after the network has changed, connections from before may be dead without saying
+// so, and the browser still has them, to send reads over. For 10 seconds, enough to connect
+// again and read what is on screen twice over, a read is given up after 3 seconds, and sent
+// once more at once, so that it goes over another connection; the browser closes the one it
+// gave up. dureq answers a read in milliseconds, and the slowest, a name looked for among
+// 100,000 workflows, took up to 1.2 seconds in a test: 3 seconds leave room for that and a
+// slow network, and still show within 5 seconds what has changed meanwhile.
+const SUSPECT_MS = 10_000;
+const SUSPECT_TIMEOUT_MS = 3_000;
+let suspectUntil = 0;
+
+/** Says that the network has changed, or a connection has died without saying so. */
+export function suspectConnections() {
+  suspectUntil = Date.now() + SUSPECT_MS;
+}
+
+const readTimeout = () => (Date.now() < suspectUntil ? SUSPECT_TIMEOUT_MS : READ_TIMEOUT_MS);
+
+/**
+ * Sends a request and reads its answer, both within the time given; a read within the time
+ * of the moment. A read that is given up while connections are suspect is sent once more.
+ */
+async function request<T>(path: string, init: RequestInit, read: (res: Response) => Promise<T>, ms?: number): Promise<T> {
+  if (ms !== undefined) return attempt(path, init, read, ms);
+  const limit = readTimeout();
+  try {
+    return await attempt(path, init, read, limit);
+  } catch (e) {
+    if (!(e instanceof TimeoutError) || limit === READ_TIMEOUT_MS || init.signal?.aborted) throw e;
+    return attempt(path, init, read, readTimeout());
+  }
+}
+
+async function attempt<T>(path: string, init: RequestInit, read: (res: Response) => Promise<T>, ms: number): Promise<T> {
   const ctl = new AbortController();
   const timeout = new TimeoutError(ms);
   const timer = setTimeout(() => ctl.abort(timeout), ms);
