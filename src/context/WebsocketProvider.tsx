@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { wsURL } from '../base';
-import type { JobEvent } from '../api';
+import { suspectConnections, type JobEvent } from '../api';
 import { createEventHandler } from './applyEvents';
 import { WebsocketContext } from './WebsocketContext';
 import { addEvents } from './eventLog';
@@ -80,7 +80,15 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     [refresher],
   );
 
-  const { status } = useWebSocket({ url: wsURL(), onMessage, onOpen, enabled: wsEnabled });
+  // Reads on their way over a connection that has died would wait for their time limit;
+  // what is on screen is read again when the socket is open again. Until then, and for a
+  // while after, a read that has no answer soon is sent once more.
+  const onLost = useCallback(() => {
+    suspectConnections();
+    void queryClient.cancelQueries();
+  }, [queryClient]);
+
+  const { status } = useWebSocket({ url: wsURL(), onMessage, onOpen, onLost, enabled: wsEnabled });
 
   return (
     <WebsocketContext.Provider value={{ status }}>

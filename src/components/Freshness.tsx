@@ -26,3 +26,13 @@ export function ChangesNote({ kind, since, onRefresh }: { kind: ListKind; since:
     </p>
   );
 }
+
+/** Says that a list may not have all that match, as not all were looked at. */
+export function LowerBoundNote({ kind, show }: { kind: ListKind; show: boolean }) {
+  if (!show) return null;
+  return (
+    <p className="hint" role="status">
+      Not all {kind} were looked at for this name, so more may match than are shown.
+    </p>
+  );
+}

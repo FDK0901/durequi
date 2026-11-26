@@ -7,11 +7,14 @@ import { router } from './router'
 import './index.css'
 import { SettingsProvider } from './context/SettingsProvider'
 import { showToast } from './context/toasts'
+import { TimeoutError } from './api'
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 1,
+      // What had no answer in time is not tried again at once, but says so, and is read again
+      // when it is next due, on another connection.
+      retry: (failures, error) => failures < 1 && !(error instanceof TimeoutError),
       staleTime: 2000,
     },
   },
