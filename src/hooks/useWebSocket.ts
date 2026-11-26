@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-/** late: open, but what comes is late (see BEAT_SENT). */
+/** late: open, but what comes is late (see createLateness). */
 export type WsStatus = 'connecting' | 'connected' | 'late' | 'disconnected' | 'offline';
 
 interface UseWebSocketOptions {
@@ -26,18 +26,58 @@ const SUSPECT_MS = 17_000;
 
 const HEARTBEAT = 'ws.heartbeat';
 const RESYNC = 'ws.resync';
-/**
- * When the server wrote a heartbeat or a resync, in milliseconds since 1970 by its clock, from
- * dureq v0.3.3. Events have no such field. Without it, nothing is late.
- */
+/** When the server wrote a heartbeat or a resync, in milliseconds since 1970 by its clock (dureq v0.3.3). */
 const BEAT_SENT = 'server_time_ms';
 /** What comes this much later than it would on time is late: a heartbeat period. */
 const LATE_MS = 15_000;
+/** Of a source, so many have to have come before they tell how late the next ones are. */
+const SETTLE = 3;
+/** The quickest is that of this and the last window, so that a clock that is set back is got over. */
+const WINDOW_MS = 5 * 60_000;
+const MAX_SOURCES = 64;
 
-/** When a heartbeat or a resync was written, if it says. */
-function sentAt(frame: unknown): number | undefined {
-  const v = (frame as Record<string, unknown>)[BEAT_SENT];
-  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+/**
+ * When a frame was written, and by whose clock: a heartbeat or a resync by the server's
+ * (server_time_ms), an event by that of the node that published it (timestamp). Events
+ * without node_id are taken to be of one source.
+ */
+function writtenAt(frame: unknown, type: unknown): { source: string; at: number } | undefined {
+  const f = frame as Record<string, unknown>;
+  if (type === HEARTBEAT || type === RESYNC) {
+    const v = f[BEAT_SENT];
+    return typeof v === 'number' && Number.isFinite(v) ? { source: '', at: v } : undefined;
+  }
+  const at = typeof f.timestamp === 'string' ? Date.parse(f.timestamp) : NaN;
+  if (!Number.isFinite(at)) return undefined;
+  return { source: `node ${typeof f.node_id === 'string' ? f.node_id : ''}`, at };
+}
+
+/**
+ * How late frames come, from when they were written. The clocks of server, nodes and browser
+ * need not agree: what counts is how much later than the quickest of the same source on this
+ * connection, which is about the difference of the clocks. undefined until a source has
+ * settled.
+ */
+function createLateness() {
+  const sources = new Map<string, { quickest: number; before: number; since: number; seen: number }>();
+  return (source: string, at: number): number | undefined => {
+    const now = Date.now();
+    const took = now - at;
+    let s = sources.get(source);
+    if (!s) {
+      if (sources.size >= MAX_SOURCES) return undefined;
+      s = { quickest: Infinity, before: Infinity, since: now, seen: 0 };
+      sources.set(source, s);
+    }
+    if (now - s.since > WINDOW_MS) {
+      s.before = s.quickest;
+      s.quickest = Infinity;
+      s.since = now;
+    }
+    s.quickest = Math.min(s.quickest, took);
+    if (++s.seen < SETTLE) return undefined;
+    return took - Math.min(s.quickest, s.before);
+  };
 }
 
 /** A WebSocket that is opened again when it closes, or when a server that sends heartbeats stops to. */
@@ -60,17 +100,14 @@ export function useWebSocket({ url, enabled, onMessage, onOpen, onLost }: UseWeb
     // Of the current socket: when it was heard of last, and whether its server sends heartbeats.
     let heardAt = 0;
     let beats = false;
-    // How long the quickest of its heartbeats and resyncs took, clocks apart, and whether they are late.
-    let quickest = Infinity;
+    // How late what comes over it is; the last frame that tells says whether it is late.
+    let lateness = createLateness();
     let late = false;
 
-    /** The clocks of server and browser need not agree: what counts is how much later than the quickest. */
-    function timeBeat(data: unknown) {
-      const sent = sentAt(data);
-      if (sent === undefined) return;
-      const took = Date.now() - sent;
-      quickest = Math.min(quickest, took);
-      if (late === took - quickest > LATE_MS) return;
+    function time(data: unknown, type: unknown) {
+      const written = writtenAt(data, type);
+      const lag = written && lateness(written.source, written.at);
+      if (lag === undefined || late === lag > LATE_MS) return;
       late = !late;
       setStatus(late ? 'late' : 'connected');
     }
@@ -106,7 +143,7 @@ export function useWebSocket({ url, enabled, onMessage, onOpen, onLost }: UseWeb
       setStatus('connecting');
       current = ws;
       beats = false;
-      quickest = Infinity;
+      lateness = createLateness();
       late = false;
       const listen = () => {
         heardAt = Date.now();
@@ -137,7 +174,7 @@ export function useWebSocket({ url, enabled, onMessage, onOpen, onLost }: UseWeb
         const beat = type === HEARTBEAT;
         beats ||= beat;
         listen();
-        if (beat || type === RESYNC) timeBeat(data);
+        time(data, type);
         if (!beat) handlers.current.onMessage(data);
       };
       ws.onclose = () => drop(ws);
