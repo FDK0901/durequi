@@ -1,5 +1,5 @@
 import type { Query, QueryClient, QueryKey } from '@tanstack/react-query';
-import type { BatchInstance, BatchProgress, Job, JobEvent, Paginated } from '../api';
+import type { BatchInstance, BatchProgress, Job, JobEvent, JobListParams, Paginated } from '../api';
 import { loadJobs, readsManyAtOnce } from '../loaders';
 import type { Refresher } from './refresh';
 import { noteOtherChanges, type ListKind } from './otherChanges';
@@ -23,6 +23,23 @@ function patchRows<T extends Row>(qc: QueryClient, refresher: Refresher, kind: L
     }
     // What is on its way may be older.
     if (query.state.fetchStatus !== 'idle') refresher.mark(query.queryKey);
+  }
+}
+
+/** Whether a job is one that a list asks for. The API filters by the first of these given. */
+function fits(params: JobListParams | undefined, job: Job): boolean {
+  if (params?.status) return job.status === params.status;
+  if (params?.task_type) return job.task_type === params.task_type;
+  if (params?.tag) return job.tags?.includes(params.tag) ?? false;
+  return true;
+}
+
+/** Lists of jobs that show a row that is no longer what they ask for, and so have other rows now. */
+function markLeftRows(qc: QueryClient, refresher: Refresher, changed: Map<string, Job>) {
+  for (const query of qc.getQueryCache().findAll({ queryKey: ['jobs'], type: 'active' })) {
+    const params = query.queryKey[1] as JobListParams | undefined;
+    const rows = (query.state.data as Paginated<Job> | undefined)?.data ?? [];
+    if (rows.some((row) => changed.has(row.id) && !fits(params, row))) refresher.mark(query.queryKey);
   }
 }
 
@@ -69,6 +86,7 @@ export function createEventHandler(qc: QueryClient, refresher: Refresher) {
     try {
       const jobs = await loadJobs(ids);
       patchRows<Job>(qc, refresher, 'jobs', (row) => jobs.get(row.id) ?? row);
+      markLeftRows(qc, refresher, jobs);
       if (ids.some((id) => !jobs.has(id))) refresher.mark(['jobs']); // deleted
     } catch {
       refresher.mark(['jobs']);
