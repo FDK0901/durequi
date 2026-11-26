@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useRedisInfo } from '../hooks';
 import type { RedisNodeInfo } from '../api';
+import { isBlocking } from '../util';
+import { StaleNote } from '../components/Freshness';
 
 function NodeSections({ node }: { node: RedisNodeInfo }) {
   const sectionNames = Object.keys(node.sections).sort();
@@ -33,11 +35,11 @@ function NodeSections({ node }: { node: RedisNodeInfo }) {
 }
 
 export default function RedisInfo() {
-  const { data, isLoading, error } = useRedisInfo();
+  const { data, isLoading, error, dataUpdatedAt } = useRedisInfo();
   const [selectedNode, setSelectedNode] = useState(0);
 
   if (isLoading) return <div className="loading">Loading...</div>;
-  if (error) return <div className="error">Error: {error.message}</div>;
+  if (isBlocking(error, data)) return <div className="error">Error: {error.message}</div>;
   if (!data || !data.nodes?.length) return null;
 
   const isCluster = data.mode === 'cluster';
@@ -51,6 +53,7 @@ export default function RedisInfo() {
           {isCluster ? `Cluster (${data.nodes.length} nodes)` : 'Standalone'}
         </span>
       </h2>
+      <StaleNote error={error} since={dataUpdatedAt} />
 
       {isCluster && (
         <div className="redis-node-tabs">

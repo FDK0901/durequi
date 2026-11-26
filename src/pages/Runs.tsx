@@ -1,11 +1,12 @@
 import { useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useActiveRuns, useHistoryRuns } from '../hooks';
-import { formatNs, mergeRuns, timeAgo } from '../util';
+import { formatNs, mergeRuns, timeAgo, isBlocking } from '../util';
 import { Pagination, SortSelect } from '../components/Pagination';
 import { RunDrawer, RunDrawerById } from '../components/RunDrawer';
 import { NodeLanes } from '../components/charts/NodeLanes';
 import type { JobRun } from '../api';
+import { StaleNote } from '../components/Freshness';
 
 const PAGE_SIZE = 50;
 
@@ -38,7 +39,7 @@ export default function Runs() {
     [offset, sortOrder, statusFilter, jobIdFilter],
   );
 
-  const { data, isLoading, error } = useHistoryRuns(params);
+  const { data, isLoading, error, dataUpdatedAt } = useHistoryRuns(params);
   const { data: activeRuns } = useActiveRuns();
   const active = (activeRuns ?? []).filter((r) => !jobIdFilter || r.job_id === jobIdFilter);
   // The API goes by the job alone if one is given.
@@ -47,7 +48,7 @@ export default function Runs() {
   const total = data?.total ?? 0;
 
   if (isLoading) return <div className="loading">Loading...</div>;
-  if (error) return <div className="error">Error: {error.message}</div>;
+  if (isBlocking(error, data)) return <div className="error">Error: {error.message}</div>;
 
   return (
     <div className="page">
@@ -85,6 +86,7 @@ export default function Runs() {
         />
         <button className="btn" onClick={() => lookUp(runIdDraft.trim())} disabled={!runIdDraft.trim()}>Look Up</button>
       </div>
+      <StaleNote error={error} since={dataUpdatedAt} />
 
       {statusFilter && jobIdFilter && runs.length < found.length && (
         <p className="hint">{found.length - runs.length} runs of this job on this page have another status and are left out.</p>

@@ -6,7 +6,7 @@ Made for dureq v0.3.1.
 
 ## Features
 
-- **Real-time Updates** — WebSocket push via Redis Pub/Sub with automatic polling fallback
+- **Real-time Updates** — WebSocket push, applied in place or read again by ID, with a slow safety poll and automatic polling fallback
 - **18 Pages** — Dashboard, Jobs, Runs, Events, Nodes, Schedules, Queues, DLQ, Workflows, Batches, Audit, Operations, Search, Redis Info, Settings (+ detail views)
 - **Firing Board** — What each schedule has run and what is due next, on one axis of time
 - **Run Visualizations** — Runs by node, run durations, retry ladder, state timeline, batch item grid
@@ -42,6 +42,8 @@ npm run dev        # http://localhost:5173
 
 The dev server proxies `/api` and `/api/ws` to `http://localhost:8080` (dureqd monitor API).
 
+If the API is not on the host the page is from, say where when building it: `VITE_DUREQ_API_BASE=https://dureq.example.com npm run build`. dureqd then has to allow the origin of the page (`allowedOrigins`).
+
 ### Build
 
 ```bash
@@ -76,18 +78,20 @@ npm run lint       # ESLint
 ## Real-time Architecture
 
 ```
-Redis Pub/Sub ({prefix}:events)
+Redis (event stream of the cluster)
   → dureqd /api/ws (Hub fan-out)
   → Browser WebSocket
-  → queryClient.invalidateQueries()
-  → React Query refetches stale queries
+  → what an event proves is changed in place
+  → what it is about, if it is on screen, is read again
 ```
 
-Events are collected and lead to at most one refetch per query and second.
+Events are collected for a second. Each kind of data has a limit of its own to how often they have it read again (a row 1s, a list 3s, stats 5s, daily stats 60s), and waits twice as long as the last read took. What is being read is never cancelled, but read once more after that.
 
-- **Connected** (green dot): WebSocket live, polling only of what has no events (stats, nodes, schedules, queues, DLQ, active runs)
-- **Connecting** (yellow dot): Reconnecting with exponential backoff (1s → 30s)
-- **Polling** (gray dot): Fallback to configured refresh interval
+- **Live** (green dot): the WebSocket is open and, with a dureq that sends heartbeats, has been heard of in the last 35 seconds. What events announce is read when they come, and every 30 seconds just in case; the rest (stats, nodes, schedules, queues, active runs) at the refresh interval
+- **Connecting** (yellow dot): WebSocket reconnecting, with a growing delay
+- **Polling** (gray dot): fallback to the configured refresh interval, or **Not refreshing** if that is off
+
+After each connection, what is on screen is read again, for nobody announces what has happened in between. The lists of jobs, workflows and batches hold still in between: of what is not on the page, there is a note with a button to refresh. A hidden tab reads nothing until it is looked at. If something cannot be read, the page keeps what it has and says since when.
 
 The WebSocket toggle in Settings allows disabling real-time updates entirely.
 
@@ -96,7 +100,9 @@ The WebSocket toggle in Settings allows disabling real-time updates entirely.
 ```
 src/
 ├── api.ts                  # Fetch-based API client, type definitions
-├── hooks.ts                # TanStack Query hooks (useJobs, useStats, ...)
+├── hooks.ts                # TanStack Query hooks (useJobs, useStats, ...), and how each is kept up to date
+├── loaders.ts              # Reads many jobs or runs in one request
+├── base.ts                 # Where the API is
 ├── router.tsx              # Route definitions
 ├── main.tsx                # Entry point, provider tree
 ├── util.ts                 # Formatting utilities
@@ -104,6 +110,7 @@ src/
 │   ├── charts/             # Firing board, node lanes, run durations, ...
 │   ├── ActivityFeed.tsx    # The last events, and those that come in
 │   ├── EventTable.tsx      # Events of the history
+│   ├── Freshness.tsx       # That data is old, or a list has changed
 │   ├── JsonView.tsx        # Collapsible JSON viewer
 │   ├── Pagination.tsx      # Reusable pagination controls
 │   ├── PriorityBadge.tsx   # Priority level badge
@@ -111,7 +118,10 @@ src/
 │   └── Toasts.tsx          # What came of an action
 ├── context/
 │   ├── SettingsContext.tsx  # Theme, refresh, read-only, WS toggle
-│   └── WebSocketContext.tsx # WS connection + cache invalidation bridge
+│   ├── WebsocketProvider.tsx # WS connection, collects events
+│   ├── applyEvents.ts      # What an event changes on screen, and what is read again
+│   ├── refresh.ts          # How often, and never twice at once
+│   └── otherChanges.ts     # What has changed that is not on screen
 ├── hooks/
 │   └── useWebSocket.ts     # WebSocket hook with reconnection
 ├── layouts/
@@ -129,6 +139,8 @@ All endpoints are served by `dureqd` on port 8080.
 | GET | `/api/stats/daily` | 30-day daily breakdown |
 | GET | `/api/jobs` | Paginated job list |
 | GET | `/api/jobs/:id` | Job detail |
+| POST | `/api/jobs/by-ids` | Several jobs; one by one if the server does not have it |
+| POST | `/api/runs/by-jobs` | The last runs of several jobs; one by one if the server does not have it |
 | POST | `/api/jobs/:id/cancel` | Cancel job |
 | POST | `/api/jobs/:id/retry` | Retry job |
 | POST | `/api/jobs/:id/resume` | Resume a paused job |
@@ -170,4 +182,4 @@ All endpoints are served by `dureqd` on port 8080.
 | GET / DELETE | `/api/locks/:key` | Inspect / remove a lock |
 | GET | `/api/redis/info` | Redis server info |
 | GET | `/api/sync-retries` | Retry queue status |
-| WS | `/api/ws` | Real-time event stream |
+| WS | `/api/ws?v=2` | Real-time event stream, with heartbeats if the server has them |

@@ -1,11 +1,12 @@
 import { Link, useParams, useNavigate } from 'react-router';
 import { useBatch, useBatchResults, useCancelBatch, useRetryBatch } from '../hooks';
 import { useSettings } from '../context/useSettings';
-import { timeAgo, formatCountdown } from '../util';
+import { timeAgo, formatCountdown, isBlocking } from '../util';
 import { JsonView } from '../components/JsonView';
 import type { BatchInstance, BatchItemResult } from '../api';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { ItemGrid } from '../components/charts/ItemGrid';
+import { StaleNote } from '../components/Freshness';
 
 function ProgressBar({ batch }: { batch: BatchInstance }) {
   const done = batch.completed_items + batch.failed_items;
@@ -71,13 +72,13 @@ export default function BatchDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { readOnly } = useSettings();
-  const { data: batch, isLoading, error } = useBatch(id!);
+  const { data: batch, isLoading, error, dataUpdatedAt } = useBatch(id!);
   const { data: results } = useBatchResults(id!);
   const cancelMut = useCancelBatch();
   const retryMut = useRetryBatch();
 
   if (isLoading) return <div className="loading">Loading...</div>;
-  if (error) return <div className="error">Error: {error.message}</div>;
+  if (isBlocking(error, batch)) return <div className="error">Error: {error.message}</div>;
   if (!batch) return <div className="error">Batch not found</div>;
 
   const isActive = batch.status === 'pending' || batch.status === 'running';
@@ -118,6 +119,7 @@ export default function BatchDetail() {
           </>
         )}
       </div>
+      <StaleNote error={error} since={dataUpdatedAt} />
 
       <ProgressBar batch={batch} />
 

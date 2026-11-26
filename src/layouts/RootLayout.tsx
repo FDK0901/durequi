@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router';
 import '../App.css';
+import { useSettings } from '../context/useSettings';
 import { useWebSocketStatus } from '../context/useWebsocketStatus';
 import { Toasts } from '../components/Toasts';
 
@@ -23,6 +24,7 @@ const NAV = [
 
 export default function RootLayout() {
   const { status } = useWebSocketStatus();
+  const { refreshInterval } = useSettings();
   const statusColor =
     status === 'connected'
       ? '#4ade80'
@@ -34,14 +36,16 @@ export default function RootLayout() {
       ? 'Live'
       : status === 'connecting'
         ? 'Connecting...'
-        : 'Polling';
+        : refreshInterval
+          ? 'Polling'
+          : 'Not refreshing';
 
   return (
     <div className="app">
       <nav className="sidebar">
         <div className="logo">
           dureq
-          <span title={`WebSocket: ${statusLabel}`} style={{ marginLeft: 8 }}>
+          <span title={statusLabel} style={{ marginLeft: 8 }}>
             <span
               style={{
                 display: 'inline-block',

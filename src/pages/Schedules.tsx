@@ -1,12 +1,13 @@
 import { Fragment, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useSchedules, useActiveRuns, useJobsById, useRunsOfJobs } from '../hooks';
-import { describeOverlap, describeSchedule, formatNs, mergeRuns, shortId, timeAgo } from '../util';
+import { describeOverlap, describeSchedule, formatNs, mergeRuns, shortId, timeAgo, isBlocking } from '../util';
 import { Pagination } from '../components/Pagination';
 import { RunDrawer } from '../components/RunDrawer';
 import { FiringBoard, type BoardRow } from '../components/charts/FiringBoard';
 import { RunStrip } from '../components/charts/RunStrip';
 import type { JobRun } from '../api';
+import { StaleNote } from '../components/Freshness';
 
 const PAGE_SIZE = 10;
 const RUN_LIMIT = 100;
@@ -63,7 +64,7 @@ export default function Schedules() {
   const [picked, setPicked] = useState<JobRun | null>(null);
   const navigate = useNavigate();
   // The order is that of the next firing: "oldest" is what is due first.
-  const { data, isLoading, error } = useSchedules({
+  const { data, isLoading, error, dataUpdatedAt } = useSchedules({
     limit: PAGE_SIZE,
     offset,
     sort: 'oldest',
@@ -77,7 +78,7 @@ export default function Schedules() {
   const runs = useRunsOfJobs(ids, RUN_LIMIT);
 
   if (isLoading) return <div className="loading">Loading...</div>;
-  if (error) return <div className="error">Error: {error.message}</div>;
+  if (isBlocking(error, data)) return <div className="error">Error: {error.message}</div>;
 
   // Rows keep their place, while what is due first changes all the time.
   const rows: BoardRow[] = schedules
@@ -91,6 +92,7 @@ export default function Schedules() {
   return (
     <div className="page">
       <h2>Active Schedules</h2>
+      <StaleNote error={error} since={dataUpdatedAt} />
 
       {rows.length > 0 && (
         <div className="chart-section">

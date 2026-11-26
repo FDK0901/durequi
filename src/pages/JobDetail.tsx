@@ -10,8 +10,9 @@ import { RunDrawer } from '../components/RunDrawer';
 import { RetryLadder } from '../components/charts/RetryLadder';
 import { RunDurations } from '../components/charts/RunDurations';
 import { StateTimeline } from '../components/charts/StateTimeline';
-import { describeOverlap, describeSchedule, formatNs, isRecurring, isRetryable, isTerminal, mergeRuns, outcomeOf, retryPolicyOf, timeAgo } from '../util';
+import { describeOverlap, describeSchedule, formatNs, isRecurring, isRetryable, isTerminal, mergeRuns, outcomeOf, retryPolicyOf, timeAgo, isBlocking } from '../util';
 import type { Job, JobRun } from '../api';
+import { StaleNote } from '../components/Freshness';
 
 const AUDIT_ROWS = 20;
 
@@ -105,7 +106,7 @@ export default function JobDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { readOnly } = useSettings();
-  const { data: job, isLoading, error } = useJob(id!);
+  const { data: job, isLoading, error, dataUpdatedAt } = useJob(id!);
   const { data: auditTrail } = useJobAuditTrail(id!);
   const { data: progress } = useJobProgress(id!);
   const { data: runs } = useJobRuns(id!);
@@ -117,7 +118,7 @@ export default function JobDetail() {
   const [picked, setPicked] = useState<JobRun | null>(null);
 
   if (isLoading) return <div className="loading">Loading...</div>;
-  if (error) return <div className="error">Error: {error.message}</div>;
+  if (isBlocking(error, job)) return <div className="error">Error: {error.message}</div>;
   if (!job) return <div className="error">Job not found</div>;
 
   const recurring = isRecurring(job.schedule);
@@ -175,6 +176,7 @@ export default function JobDetail() {
           </div>
         )}
       </div>
+      <StaleNote error={error} since={dataUpdatedAt} />
 
       <div className="detail">
         <dl>

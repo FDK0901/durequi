@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useWorkflows, useCancelWorkflow, useRetryWorkflow, useBulkCancelWorkflows, useBulkRetryWorkflows, useBulkDeleteWorkflows } from '../hooks';
 import { useSettings } from '../context/useSettings';
-import { timeAgo } from '../util';
+import { timeAgo, isBlocking } from '../util';
 import { Pagination, SortSelect } from '../components/Pagination';
+import { ChangesNote, StaleNote } from '../components/Freshness';
 
 const STATUSES = ['', 'pending', 'running', 'suspended', 'completed', 'failed', 'cancelled'];
 const PAGE_SIZE = 10;
@@ -22,7 +23,7 @@ export default function Workflows() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
   const { readOnly } = useSettings();
-  const { data, isLoading, error } = useWorkflows({
+  const { data, isLoading, error, dataUpdatedAt, refetch } = useWorkflows({
     status: filter || undefined,
     name: nameFilter || undefined,
     limit: PAGE_SIZE,
@@ -52,11 +53,12 @@ export default function Workflows() {
     setSelected(next);
   }
 
-  const selectedIds = Array.from(selected);
+  // Only what is on screen is acted on.
+  const selectedIds = workflows.map(({ id }) => id).filter((id) => selected.has(id));
   const hasSelection = selectedIds.length > 0;
 
   if (isLoading) return <div className="loading">Loading...</div>;
-  if (error) return <div className="error">Error: {error.message}</div>;
+  if (isBlocking(error, data)) return <div className="error">Error: {error.message}</div>;
 
   return (
     <div className="page">
@@ -77,6 +79,8 @@ export default function Workflows() {
         </select>
         <SortSelect value={sortOrder} onChange={(v) => { setSortOrder(v); setOffset(0); }} />
       </div>
+      <StaleNote error={error} since={dataUpdatedAt} />
+      {offset === 0 && <ChangesNote kind="workflows" since={dataUpdatedAt} onRefresh={refetch} />}
 
       {!readOnly && hasSelection && (
         <div className="bulk-toolbar">

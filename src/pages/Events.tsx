@@ -54,7 +54,13 @@ export default function Events() {
       {events.length > 0 && (
         <>
           <EventTable events={events} />
-          <Pagination offset={offset} limit={PAGE_SIZE} total={data?.total ?? 0} onOffsetChange={setOffset} />
+          <Pagination
+            offset={offset}
+            limit={PAGE_SIZE}
+            total={data?.total ?? offset + events.length + (data?.has_more ? 1 : 0)}
+            more={data?.has_more}
+            onOffsetChange={setOffset}
+          />
         </>
       )}
     </div>
