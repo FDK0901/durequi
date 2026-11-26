@@ -3,9 +3,10 @@ import { Link, useParams, useNavigate } from 'react-router';
 import { useWorkflow, useCancelWorkflow, useRetryWorkflow, useWorkflowAuditTrail, useWorkflowTaskResult, useSuspendWorkflow, useResumeWorkflow, useWorkflowSignalStats } from '../hooks';
 import { useSettings } from '../context/useSettings';
 import { useNow } from '../context/useNow';
-import { timeAgo, formatCountdown, formatMs } from '../util';
+import { timeAgo, formatCountdown, formatMs, isBlocking } from '../util';
 import { JsonView } from '../components/JsonView';
 import type { WorkflowInstance, WorkflowTaskDef, WorkflowTaskState } from '../api';
+import { StaleNote } from '../components/Freshness';
 
 // --- DAG layout helpers ---
 
@@ -699,7 +700,7 @@ export default function WorkflowDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { readOnly } = useSettings();
-  const { data: wf, isLoading, error } = useWorkflow(id!);
+  const { data: wf, isLoading, error, dataUpdatedAt } = useWorkflow(id!);
   const { data: auditTrail } = useWorkflowAuditTrail(id!);
   const { data: signalStats } = useWorkflowSignalStats(id!);
   const cancelMut = useCancelWorkflow();
@@ -710,7 +711,7 @@ export default function WorkflowDetail() {
   const [showDef, setShowDef] = useState(false);
 
   if (isLoading) return <div className="loading">Loading...</div>;
-  if (error) return <div className="error">Error: {error.message}</div>;
+  if (isBlocking(error, wf)) return <div className="error">Error: {error.message}</div>;
   if (!wf) return <div className="error">Workflow not found</div>;
 
   const taskEntries = tasksOf(wf);
@@ -762,6 +763,7 @@ export default function WorkflowDetail() {
           </button>
         )}
       </div>
+      <StaleNote error={error} since={dataUpdatedAt} />
 
       <div className="detail">
         <dl>

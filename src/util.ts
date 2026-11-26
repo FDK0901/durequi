@@ -1,4 +1,9 @@
-import type { Job, JobEvent, JobRun, RetryPolicy, Schedule } from './api';
+import { ApiError, type Job, type JobEvent, type JobRun, type RetryPolicy, type Schedule } from './api';
+
+/** Whether an error is all there is to show: nothing has been read, or what has been is gone. */
+export function isBlocking(error: Error | null, data: unknown): error is Error {
+  return error != null && (data == null || (error instanceof ApiError && error.status === 404));
+}
 
 export function timeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();

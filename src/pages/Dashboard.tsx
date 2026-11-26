@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { useStats, useDailyStats, useSyncRetries, useNodes, useQueues, useJobsById, useSchedules, useDLQ } from '../hooks';
 import { useNow } from '../context/useNow';
-import { LATE_MS, describeSchedule, formatDue, shortId } from '../util';
+import { LATE_MS, describeSchedule, formatDue, shortId, isBlocking } from '../util';
 import { ActivityFeed } from '../components/ActivityFeed';
 import {
   AreaChart,
@@ -14,6 +14,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
+import { StaleNote } from '../components/Freshness';
 
 const STATUS_ORDER = [
   'pending',
@@ -144,7 +145,7 @@ function StatusTable({ title, rows, to }: { title: string; rows: [string, number
 }
 
 export default function Dashboard() {
-  const { data: stats, isLoading, error } = useStats();
+  const { data: stats, isLoading, error, dataUpdatedAt } = useStats();
   const { data: nodes } = useNodes();
   const { data: queues } = useQueues();
   const [period, setPeriod] = useState<Period>(7);
@@ -152,7 +153,7 @@ export default function Dashboard() {
   const { data: syncRetries } = useSyncRetries();
 
   if (isLoading) return <div className="loading">Loading...</div>;
-  if (error) return <div className="error">Error: {error.message}</div>;
+  if (isBlocking(error, stats)) return <div className="error">Error: {error.message}</div>;
   if (!stats) return null;
 
   const capacity = nodes?.reduce((n, node) => n + (node.pool_stats?.max_concurrency ?? 0), 0) ?? 0;
@@ -164,6 +165,7 @@ export default function Dashboard() {
   return (
     <div className="page">
       <h2>Cluster Overview</h2>
+      <StaleNote error={error} since={dataUpdatedAt} />
 
       <div className="stat-cards">
         <div className="stat-card">

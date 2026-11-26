@@ -1,8 +1,9 @@
 import { useNodes, useActiveRuns, useDrainingNodes, useDrainNode, useUndrainNode } from '../hooks';
 import { useSettings } from '../context/useSettings';
 import { useNow } from '../context/useNow';
-import { timeAgo } from '../util';
+import { timeAgo, isBlocking } from '../util';
 import type { NodeInfo } from '../api';
+import { StaleNote } from '../components/Freshness';
 
 function heartbeatClass(lastHeartbeat: string, now: number): string {
   const elapsed = now - new Date(lastHeartbeat).getTime();
@@ -58,7 +59,7 @@ function HandlerCoverage({ nodes }: { nodes: NodeInfo[] }) {
 }
 
 export default function Nodes() {
-  const { data: nodes, isLoading, error } = useNodes();
+  const { data: nodes, isLoading, error, dataUpdatedAt } = useNodes();
   const { readOnly } = useSettings();
   const { data: activeRuns } = useActiveRuns();
   const draining = useDrainingNodes(nodes ?? []);
@@ -66,11 +67,12 @@ export default function Nodes() {
   const undrainMut = useUndrainNode();
 
   if (isLoading) return <div className="loading">Loading...</div>;
-  if (error) return <div className="error">Error: {error.message}</div>;
+  if (isBlocking(error, nodes)) return <div className="error">Error: {error.message}</div>;
 
   return (
     <div className="page">
       <h2>Nodes</h2>
+      <StaleNote error={error} since={dataUpdatedAt} />
       <p className="hint">Started counts the runs since the node came up, retries among them.</p>
 
       <table>

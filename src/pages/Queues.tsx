@@ -1,14 +1,16 @@
 import { useQueues, usePauseQueue, useResumeQueue } from '../hooks';
 import { useSettings } from '../context/useSettings';
+import { isBlocking } from '../util';
+import { StaleNote } from '../components/Freshness';
 
 export default function Queues() {
-  const { data: queues, isLoading, error } = useQueues();
+  const { data: queues, isLoading, error, dataUpdatedAt } = useQueues();
   const { readOnly } = useSettings();
   const pauseQueue = usePauseQueue();
   const resumeQueue = useResumeQueue();
 
   if (isLoading) return <div className="loading">Loading...</div>;
-  if (error) return <div className="error">Error: {error.message}</div>;
+  if (isBlocking(error, queues)) return <div className="error">Error: {error.message}</div>;
   if (!queues || queues.length === 0) return <div className="page"><h2>Queues</h2><p>No queues configured.</p></div>;
 
   const totalWeight = queues.reduce((n, q) => n + q.weight, 0) || 1;
@@ -16,6 +18,7 @@ export default function Queues() {
   return (
     <div className="page">
       <h2>Queue Management</h2>
+      <StaleNote error={error} since={dataUpdatedAt} />
       <p className="hint">
         Workers look at the queues in this order; the weight does not change it. Delayed are retries, jobs whose
         concurrency key is taken, and jobs of a handler that is at its limit.

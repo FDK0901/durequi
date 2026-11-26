@@ -3,13 +3,15 @@ import { Link } from 'react-router';
 import { useDLQ } from '../hooks';
 import { JsonView } from '../components/JsonView';
 import { Pagination } from '../components/Pagination';
+import { isBlocking } from '../util';
+import { StaleNote } from '../components/Freshness';
 
 const PAGE_SIZE = 50;
 
 export default function DLQ() {
   const [offset, setOffset] = useState(0);
   const [error_, setError] = useState('');
-  const { data, isLoading, error } = useDLQ({
+  const { data, isLoading, error, dataUpdatedAt } = useDLQ({
     limit: PAGE_SIZE,
     offset,
   });
@@ -18,7 +20,7 @@ export default function DLQ() {
   const total = data?.total ?? 0;
 
   if (isLoading) return <div className="loading">Loading...</div>;
-  if (error) return <div className="error">Error: {error.message}</div>;
+  if (isBlocking(error, data)) return <div className="error">Error: {error.message}</div>;
 
   const reasonOf = (m: (typeof messages)[number]) => m.metadata?.error ?? 'unknown error';
   const reasons = new Map<string, number>();
@@ -29,6 +31,7 @@ export default function DLQ() {
   return (
     <div className="page">
       <h2>Dead Letter Queue</h2>
+      <StaleNote error={error} since={dataUpdatedAt} />
       <p className="hint">
         Executions that were given up. The job of one may be dead, or have gone on with its next firing (keep on failure).
       </p>

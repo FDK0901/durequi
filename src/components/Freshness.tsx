@@ -1,5 +1,16 @@
 import { useSyncExternalStore } from 'react';
 import { countOtherChanges, otherChanges, type ListKind } from '../context/otherChanges';
+import { formatTime } from '../util';
+
+/** Says that what is shown could not be read again. */
+export function StaleNote({ error, since }: { error: Error | null; since: number }) {
+  if (!error) return null;
+  return (
+    <p className="hint" role="status">
+      <span className="error-text">Could not refresh, showing data from {formatTime(since)}.</span> {error.message}
+    </p>
+  );
+}
 
 const ONE: Record<ListKind, string> = { jobs: 'job', workflows: 'workflow', batches: 'batch' };
 
