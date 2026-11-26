@@ -42,7 +42,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     addEvents(events);
     if (missed.current) {
       missed.current = false;
-      // As often as that may come, it costs no more than polling.
+      // As often as that may come, it costs no more than polling without the WebSocket.
       refresher.markAll({ floor: pollMs.current });
       return;
     }

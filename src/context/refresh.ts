@@ -29,8 +29,8 @@ export interface Refresher {
   mark: (key: QueryKey) => void;
   /**
    * Has everything on screen read again, as events may have been missed: now, after a
-   * connection, or else not sooner after the last time than floor, so that what is polled is
-   * not read more often than polling would.
+   * connection, or else not sooner after the last time than floor, the refresh interval;
+   * what is polled that often is left to it then.
    */
   markAll: (how?: { now?: boolean; floor?: number }) => void;
   stop: () => void;
@@ -83,6 +83,15 @@ export function createRefresher(qc: QueryClient): Refresher {
       return from !== undefined && from >= d.at && dataUpdatedAt >= from;
     };
     return queries.length > 0 && queries.every(read);
+  }
+
+  /** How often it is polled, by the observer that asks most often. */
+  function polledEvery(q: Query): number {
+    let every = Infinity;
+    for (const { options } of q.observers) {
+      if (typeof options.refetchInterval === 'number' && options.refetchInterval > 0) every = Math.min(every, options.refetchInterval);
+    }
+    return every;
   }
 
   function dueAt(id: string, d: Dirty): number {
@@ -144,9 +153,9 @@ export function createRefresher(qc: QueryClient): Refresher {
       });
     },
     markAll({ now = false, floor = 0 } = {}) {
-      for (const { queryKey } of qc.getQueryCache().findAll({ type: 'active' })) {
-        if (ON_DEMAND.has(String(queryKey[0]))) continue;
-        put(queryKey, (d) => {
+      for (const query of qc.getQueryCache().findAll({ type: 'active' })) {
+        if (ON_DEMAND.has(String(query.queryKey[0])) || (floor && polledEvery(query) <= floor)) continue;
+        put(query.queryKey, (d) => {
           d.now ||= now;
           d.floor = Math.max(d.floor, floor);
         });
