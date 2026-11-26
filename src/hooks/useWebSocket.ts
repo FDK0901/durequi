@@ -8,6 +8,11 @@ interface UseWebSocketOptions {
   onMessage: (data: unknown) => void;
   /** Called with every connection, also the first one. */
   onOpen?: () => void;
+  /**
+   * Called when the network has gone or changed, or the connection has died without being
+   * closed: what is on its way over HTTP may never come either.
+   */
+  onLost?: () => void;
 }
 
 const MAX_DELAY_MS = 30_000;
@@ -15,15 +20,17 @@ const MAX_DELAY_MS = 30_000;
 const LASTING_MS = 10_000;
 /** A server that sends heartbeats does so every 15 seconds. */
 const SILENCE_MS = 35_000;
+/** When the network changes, a socket not heard of for longer than a heartbeat takes is replaced. */
+const SUSPECT_MS = 17_000;
 
 const HEARTBEAT = 'ws.heartbeat';
 
 /** A WebSocket that is opened again when it closes, or when a server that sends heartbeats stops to. */
-export function useWebSocket({ url, enabled, onMessage, onOpen }: UseWebSocketOptions) {
+export function useWebSocket({ url, enabled, onMessage, onOpen, onLost }: UseWebSocketOptions) {
   const [status, setStatus] = useState<WsStatus>('connecting');
-  const handlers = useRef({ onMessage, onOpen });
+  const handlers = useRef({ onMessage, onOpen, onLost });
   useEffect(() => {
-    handlers.current = { onMessage, onOpen };
+    handlers.current = { onMessage, onOpen, onLost };
   });
 
   useEffect(() => {
@@ -35,6 +42,9 @@ export function useWebSocket({ url, enabled, onMessage, onOpen }: UseWebSocketOp
     let silence: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
     let openedAt = 0;
+    // Of the current socket: when it was heard of last, and whether its server sends heartbeats.
+    let heardAt = 0;
+    let beats = false;
 
     function drop(ws: WebSocket) {
       if (current !== ws) return;
@@ -66,19 +76,21 @@ export function useWebSocket({ url, enabled, onMessage, onOpen }: UseWebSocketOp
       }
       setStatus('connecting');
       current = ws;
-      let beats = false;
+      beats = false;
       const listen = () => {
+        heardAt = Date.now();
         clearTimeout(silence);
         if (beats) {
           silence = setTimeout(() => {
             drop(ws);
             ws.close();
+            handlers.current.onLost?.();
           }, SILENCE_MS);
         }
       };
       ws.onopen = () => {
         if (current !== ws) return;
-        openedAt = Date.now();
+        openedAt = heardAt = Date.now();
         setStatus('connected');
         handlers.current.onOpen?.();
       };
@@ -114,13 +126,24 @@ export function useWebSocket({ url, enabled, onMessage, onOpen }: UseWebSocketOp
         ws.close();
       }
       setStatus('offline');
+      handlers.current.onLost?.();
     }
 
+    // The network has changed. A socket from before is kept only if it has been heard of
+    // lately; one from a server without heartbeats cannot tell.
     function online() {
-      if (current) return;
       clearTimeout(retry);
       attempt = 0;
+      const ws = current;
+      if (ws && beats && Date.now() - heardAt <= SUSPECT_MS) return;
+      if (ws) {
+        current = null;
+        clearTimeout(silence);
+        openedAt = 0;
+        ws.close();
+      }
       connect();
+      handlers.current.onLost?.();
     }
 
     if (navigator.onLine) connect();

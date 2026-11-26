@@ -80,7 +80,11 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     [refresher],
   );
 
-  const { status } = useWebSocket({ url: wsURL(), onMessage, onOpen, enabled: wsEnabled });
+  // Reads on their way over a connection that has died would wait for their time limit;
+  // what is on screen is read again when the socket is open again.
+  const onLost = useCallback(() => void queryClient.cancelQueries(), [queryClient]);
+
+  const { status } = useWebSocket({ url: wsURL(), onMessage, onOpen, onLost, enabled: wsEnabled });
 
   return (
     <WebsocketContext.Provider value={{ status }}>
