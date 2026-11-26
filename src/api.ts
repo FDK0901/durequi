@@ -324,46 +324,70 @@ export class ApiError extends Error {
   }
 }
 
-async function request(path: string, init?: RequestInit): Promise<Response> {
-  const res = await fetch(apiURL(path), init);
-  if (res.ok) return res;
-  const body = await res.text();
-  let message = body || res.statusText;
-  try {
-    message = JSON.parse(body).error ?? message;
-  } catch {
-    // Not JSON, e.g. from a proxy in between.
+// What has had no answer in that long is given up: on a connection that has died without
+// saying so, as one does when the network changes, it would never have one. 15 seconds is
+// the period of the heartbeats of the WebSocket, and dureq answers a read in milliseconds;
+// the slowest, a name looked for among 100,000 workflows, took half a second. An action, which
+// cannot be sent again just like that, has longer.
+const READ_TIMEOUT_MS = 15_000;
+const ACTION_TIMEOUT_MS = 60_000;
+
+/** No answer in time. What is read is read again later, on another connection. */
+export class TimeoutError extends Error {
+  constructor(ms: number) {
+    super(`No answer from the API in ${ms / 1000} seconds`);
   }
-  throw new ApiError(res.status, message);
 }
+
+/** Sends a request and reads its answer, both within the time given. */
+async function request<T>(path: string, init: RequestInit, read: (res: Response) => Promise<T>, ms = READ_TIMEOUT_MS): Promise<T> {
+  const ctl = new AbortController();
+  const timeout = new TimeoutError(ms);
+  const timer = setTimeout(() => ctl.abort(timeout), ms);
+  const caller = init.signal;
+  const cancel = () => ctl.abort(caller?.reason);
+  if (caller?.aborted) cancel();
+  else caller?.addEventListener('abort', cancel);
+  try {
+    const res = await fetch(apiURL(path), { ...init, signal: ctl.signal });
+    if (res.ok) return await read(res);
+    const body = await res.text();
+    let message = body || res.statusText;
+    try {
+      message = JSON.parse(body).error ?? message;
+    } catch {
+      // Not JSON, e.g. from a proxy in between.
+    }
+    throw new ApiError(res.status, message);
+  } catch (e) {
+    throw ctl.signal.reason === timeout ? timeout : e;
+  } finally {
+    clearTimeout(timer);
+    caller?.removeEventListener('abort', cancel);
+  }
+}
+
+const json = (res: Response) => res.json();
+const none = async () => {};
 
 async function fetchJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
-  return (await request(path, { signal })).json();
+  return request<T>(path, { signal }, json);
 }
 
-async function postAction(path: string): Promise<void> {
-  await request(path, { method: 'POST' });
-}
+const jsonBody = (method: string, body: unknown): RequestInit => ({
+  method,
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+});
 
-async function sendJSON<T>(method: 'POST' | 'PUT', path: string, body: unknown): Promise<T> {
-  const res = await request(path, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-  return res.json();
-}
+/** A read that sends what it asks for, such as many IDs. */
+const readJSON = <T>(path: string, body: unknown) => request<T>(path, jsonBody('POST', body), json);
 
-const postJSON = <T>(path: string, body: unknown) => sendJSON<T>('POST', path, body);
-const putJSON = <T>(path: string, body: unknown) => sendJSON<T>('PUT', path, body);
-
-async function deleteAction(path: string): Promise<void> {
-  await request(path, { method: 'DELETE' });
-}
-
-async function deleteJSON<T>(path: string): Promise<T> {
-  return (await request(path, { method: 'DELETE' })).json();
-}
+const postAction = (path: string) => request(path, { method: 'POST' }, none, ACTION_TIMEOUT_MS);
+const postJSON = <T>(path: string, body: unknown) => request<T>(path, jsonBody('POST', body), json, ACTION_TIMEOUT_MS);
+const putJSON = <T>(path: string, body: unknown) => request<T>(path, jsonBody('PUT', body), json, ACTION_TIMEOUT_MS);
+const deleteAction = (path: string) => request(path, { method: 'DELETE' }, none, ACTION_TIMEOUT_MS);
+const deleteJSON = <T>(path: string) => request<T>(path, { method: 'DELETE' }, json, ACTION_TIMEOUT_MS);
 
 export interface Paginated<T> {
   data: T[] | null;
@@ -529,10 +553,10 @@ export const api = {
   getJob: (id: string) => fetchJSON<Job>(`/api/jobs/${id}`),
   /** Those that exist. Not on servers up to v0.3.1. */
   getJobsByIDs: async (ids: string[]) =>
-    (await postJSON<{ data: Job[] | null }>('/api/jobs/by-ids', { ids })).data ?? [],
+    (await readJSON<{ data: Job[] | null }>('/api/jobs/by-ids', { ids })).data ?? [],
   /** The last runs by job. Not on servers up to v0.3.1. */
   listRunsOfJobs: async (jobIds: string[], limit: number) =>
-    (await postJSON<{ data: Record<string, JobRun[]> | null }>('/api/runs/by-jobs', { job_ids: jobIds, limit })).data ?? {},
+    (await readJSON<{ data: Record<string, JobRun[]> | null }>('/api/runs/by-jobs', { job_ids: jobIds, limit })).data ?? {},
   deleteJob: (id: string) => deleteAction(`/api/jobs/${id}`),
   listNodes: () => fetchJSON<NodeInfo[] | null>('/api/nodes'),
   listActiveRuns: () => fetchJSON<JobRun[] | null>('/api/runs'),
@@ -572,7 +596,7 @@ export const api = {
   getWorkflowTaskResult: (wfId: string, taskName: string) =>
     fetchJSON<{ output: unknown }>(`/api/workflows/${wfId}/tasks/${encodeURIComponent(taskName)}/result`),
   validateWorkflow: (def: WorkflowDefinition) =>
-    postJSON<{ valid: boolean; errors?: string[] }>('/api/workflows/validate', def),
+    readJSON<{ valid: boolean; errors?: string[] }>('/api/workflows/validate', def),
 
   // Batches
   listBatches: (params: ListParams = {}, signal?: AbortSignal) =>
@@ -637,7 +661,7 @@ export const api = {
   getJobAuditTrail: (jobId: string) =>
     fetchJSON<AuditEntry[] | null>(`/api/jobs/${jobId}/audit`),
   getAuditCounts: (ids: string[]) =>
-    postJSON<Record<string, number>>('/api/audit/counts', { ids }),
+    readJSON<Record<string, number>>('/api/audit/counts', { ids }),
   getWorkflowAuditTrail: (workflowId: string) =>
     fetchJSON<WorkflowAuditEntry[] | null>(`/api/workflows/${workflowId}/audit`),
 

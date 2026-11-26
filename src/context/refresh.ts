@@ -125,7 +125,11 @@ export function createRefresher(qc: QueryClient): Refresher {
       // What is hidden is only marked, and read when it is looked at.
       const hidden = document.hidden;
       void qc.invalidateQueries({ queryKey: d.key, refetchType: hidden ? 'none' : 'active' }).then(() => {
-        if (!hidden) last.set(id, { at: Date.now(), took: Date.now() - now });
+        if (hidden) return;
+        // One that failed, such as one that had no answer in time, says nothing of how long
+        // a read takes.
+        const failed = qc.getQueryCache().findAll({ queryKey: d.key, type: 'active' }).some((q) => q.state.errorUpdatedAt >= now);
+        last.set(id, { at: Date.now(), took: failed ? 0 : Date.now() - now });
       });
     }
     for (const id of last.keys()) {
