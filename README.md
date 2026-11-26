@@ -85,11 +85,13 @@ Redis (event stream of the cluster)
   → what it is about, if it is on screen, is read again
 ```
 
-Events are collected for a second. Each kind of data has a limit of its own to how often they have it read again (a row 1s, a list 3s, stats 5s, daily stats 60s), and waits twice as long as the last read took. What is being read is never cancelled, but read once more after that.
+Events are collected for a second. Each kind of data has a limit of its own to how often they have it read again (a row 1s, a list 3s, stats 5s, daily stats 60s), and waits twice as long as the last read took. What is being read is not cancelled for that, but read once more after it. A read that has no answer in 15 seconds (an action: 60) is given up, as are reads on their way when the network goes or changes; they are read again on another connection.
 
 - **Live** (green dot): the WebSocket is open and, with a dureq that sends heartbeats, has been heard of in the last 35 seconds. What events announce is read when they come, and every 30 seconds just in case; the rest (stats, nodes, schedules, queues, active runs) at the refresh interval
+- **Live, but late** (yellow dot): with a dureq whose heartbeats say when they were sent, they come more than 15 seconds late; what events announce is polled, too
 - **Connecting** (yellow dot): WebSocket reconnecting, with a growing delay
 - **Polling** (gray dot): fallback to the configured refresh interval, or **Not refreshing** if that is off
+- **Offline** (gray dot): the browser has no network; the WebSocket is opened again as soon as it has. When it comes back, a socket from before is kept only if it has been heard of within a heartbeat period
 
 After each connection, what is on screen is read again, for nobody announces what has happened in between. The lists of jobs, workflows and batches hold still in between: of what is not on the page, there is a note with a button to refresh. A hidden tab reads nothing until it is looked at. If something cannot be read, the page keeps what it has and says since when.
 
