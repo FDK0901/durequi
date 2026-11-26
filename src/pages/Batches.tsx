@@ -5,7 +5,8 @@ import { useSettings } from '../context/useSettings';
 import { timeAgo, isBlocking } from '../util';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { Pagination, SortSelect } from '../components/Pagination';
-import { ChangesNote, StaleNote } from '../components/Freshness';
+import { ChangesNote, LowerBoundNote, StaleNote } from '../components/Freshness';
+import { isLowerBound } from '../api';
 
 const STATUSES = ['', 'pending', 'running', 'completed', 'failed', 'cancelled'];
 const PAGE_SIZE = 10;
@@ -38,6 +39,7 @@ export default function Batches() {
 
   const batches = data?.data ?? [];
   const total = data?.total ?? 0;
+  const partial = isLowerBound(data);
 
   const allSelected = batches.length > 0 && batches.every((b) => selected.has(b.id));
 
@@ -81,6 +83,7 @@ export default function Batches() {
       </div>
       <StaleNote error={error} since={dataUpdatedAt} />
       {offset === 0 && <ChangesNote kind="batches" since={dataUpdatedAt} onRefresh={refetch} />}
+      <LowerBoundNote kind="batches" show={partial} />
 
       {!readOnly && hasSelection && (
         <div className="bulk-toolbar">
@@ -216,14 +219,14 @@ export default function Batches() {
           {batches.length === 0 && (
             <tr>
               <td colSpan={readOnly ? 8 : 10} className="empty">
-                No batches found
+                {partial ? 'None found among those looked at; more may match.' : 'No batches found'}
               </td>
             </tr>
           )}
         </tbody>
       </table>
 
-      <Pagination offset={offset} limit={PAGE_SIZE} total={total} onOffsetChange={setOffset} />
+      <Pagination offset={offset} limit={PAGE_SIZE} total={total} atLeast={partial} onOffsetChange={setOffset} />
     </div>
   );
 }

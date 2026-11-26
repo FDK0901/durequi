@@ -367,8 +367,16 @@ async function deleteJSON<T>(path: string): Promise<T> {
 
 export interface Paginated<T> {
   data: T[] | null;
+  /** Not there if total=false was asked for; has_more is then. */
   total: number;
+  /** A name is looked for among so many workflows or batches at most: more may match. */
+  total_is_lower_bound?: boolean;
+  has_more?: boolean;
 }
+
+/** Whether more may match than a page says, as not all were looked at. */
+export const isLowerBound = (page?: Paginated<unknown>) =>
+  !!page && (!!page.total_is_lower_bound || (page.total === undefined && !!page.has_more));
 
 export interface ListParams {
   limit?: number;

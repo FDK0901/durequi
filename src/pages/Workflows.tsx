@@ -4,7 +4,8 @@ import { useWorkflows, useCancelWorkflow, useRetryWorkflow, useBulkCancelWorkflo
 import { useSettings } from '../context/useSettings';
 import { timeAgo, isBlocking } from '../util';
 import { Pagination, SortSelect } from '../components/Pagination';
-import { ChangesNote, StaleNote } from '../components/Freshness';
+import { ChangesNote, LowerBoundNote, StaleNote } from '../components/Freshness';
+import { isLowerBound } from '../api';
 
 const STATUSES = ['', 'pending', 'running', 'suspended', 'completed', 'failed', 'cancelled'];
 const PAGE_SIZE = 10;
@@ -38,6 +39,7 @@ export default function Workflows() {
 
   const workflows = data?.data ?? [];
   const total = data?.total ?? 0;
+  const partial = isLowerBound(data);
 
   const allSelected = workflows.length > 0 && workflows.every((w) => selected.has(w.id));
 
@@ -81,6 +83,7 @@ export default function Workflows() {
       </div>
       <StaleNote error={error} since={dataUpdatedAt} />
       {offset === 0 && <ChangesNote kind="workflows" since={dataUpdatedAt} onRefresh={refetch} />}
+      <LowerBoundNote kind="workflows" show={partial} />
 
       {!readOnly && hasSelection && (
         <div className="bulk-toolbar">
@@ -214,14 +217,14 @@ export default function Workflows() {
           {workflows.length === 0 && (
             <tr>
               <td colSpan={readOnly ? 6 : 8} className="empty">
-                No workflows found
+                {partial ? 'None found among those looked at; more may match.' : 'No workflows found'}
               </td>
             </tr>
           )}
         </tbody>
       </table>
 
-      <Pagination offset={offset} limit={PAGE_SIZE} total={total} onOffsetChange={setOffset} />
+      <Pagination offset={offset} limit={PAGE_SIZE} total={total} atLeast={partial} onOffsetChange={setOffset} />
     </div>
   );
 }
