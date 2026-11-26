@@ -53,7 +53,8 @@ export default function Workflows() {
     setSelected(next);
   }
 
-  const selectedIds = Array.from(selected);
+  // Only what is on screen is acted on.
+  const selectedIds = workflows.map(({ id }) => id).filter((id) => selected.has(id));
   const hasSelection = selectedIds.length > 0;
 
   if (isLoading) return <div className="loading">Loading...</div>;

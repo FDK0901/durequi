@@ -21,7 +21,9 @@ function loadSettings(): Settings {
 }
 
 function saveSettings(s: Settings) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    } catch { /* they last until the page is left */ }
 }
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
