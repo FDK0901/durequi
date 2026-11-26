@@ -142,6 +142,11 @@ export function createEventHandler(qc: QueryClient, refresher: Refresher) {
     const batches = shown('batches');
     const others: Record<ListKind, Set<string>> = { jobs: new Set(), workflows: new Set(), batches: new Set() };
     const changedRows = new Set<string>();
+    // Batches whose counters come with these events.
+    const progressed = new Set<unknown>();
+    for (const e of events) {
+      if (isProgress(e.batch_progress)) progressed.add(e.batch_progress.batch_id ?? e.job_id);
+    }
 
     const one = (e: JobEvent) => {
       const { type, job_id: id } = e;
@@ -183,8 +188,11 @@ export function createEventHandler(qc: QueryClient, refresher: Refresher) {
           return;
         }
         markOne('batch', batch);
-        markOne('batchResults', batch);
-        if (type.startsWith('batch.item.') || type.startsWith('batch.onetime.')) return; // the progress says it
+        const item = type.startsWith('batch.item.');
+        // Of an item, the batch has its state. All results are read again when the batch has
+        // ended, or is retried: not for each item, if the progress says how far it is.
+        if (!(item && progressed.has(batch))) markOne('batchResults', batch);
+        if (item || type.startsWith('batch.onetime.')) return; // the progress says it
         if (batches.has(batch)) mark(['batches']);
         else others.batches.add(batch);
       } else if (type.startsWith('node.')) {
