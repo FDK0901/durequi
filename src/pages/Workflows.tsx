@@ -4,6 +4,7 @@ import { useWorkflows, useCancelWorkflow, useRetryWorkflow, useBulkCancelWorkflo
 import { useSettings } from '../context/useSettings';
 import { timeAgo } from '../util';
 import { Pagination, SortSelect } from '../components/Pagination';
+import { ChangesNote } from '../components/Freshness';
 
 const STATUSES = ['', 'pending', 'running', 'suspended', 'completed', 'failed', 'cancelled'];
 const PAGE_SIZE = 10;
@@ -22,7 +23,7 @@ export default function Workflows() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
   const { readOnly } = useSettings();
-  const { data, isLoading, error } = useWorkflows({
+  const { data, isLoading, error, dataUpdatedAt, refetch } = useWorkflows({
     status: filter || undefined,
     name: nameFilter || undefined,
     limit: PAGE_SIZE,
@@ -77,6 +78,7 @@ export default function Workflows() {
         </select>
         <SortSelect value={sortOrder} onChange={(v) => { setSortOrder(v); setOffset(0); }} />
       </div>
+      {offset === 0 && <ChangesNote kind="workflows" since={dataUpdatedAt} onRefresh={refetch} />}
 
       {!readOnly && hasSelection && (
         <div className="bulk-toolbar">

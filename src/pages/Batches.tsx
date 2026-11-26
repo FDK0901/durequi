@@ -5,6 +5,7 @@ import { useSettings } from '../context/useSettings';
 import { timeAgo } from '../util';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { Pagination, SortSelect } from '../components/Pagination';
+import { ChangesNote } from '../components/Freshness';
 
 const STATUSES = ['', 'pending', 'running', 'completed', 'failed', 'cancelled'];
 const PAGE_SIZE = 10;
@@ -23,7 +24,7 @@ export default function Batches() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
   const { readOnly } = useSettings();
-  const { data, isLoading, error } = useBatches({
+  const { data, isLoading, error, dataUpdatedAt, refetch } = useBatches({
     status: filter || undefined,
     name: nameFilter || undefined,
     limit: PAGE_SIZE,
@@ -77,6 +78,7 @@ export default function Batches() {
         </select>
         <SortSelect value={sortOrder} onChange={(v) => { setSortOrder(v); setOffset(0); }} />
       </div>
+      {offset === 0 && <ChangesNote kind="batches" since={dataUpdatedAt} onRefresh={refetch} />}
 
       {!readOnly && hasSelection && (
         <div className="bulk-toolbar">

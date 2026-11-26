@@ -6,6 +6,7 @@ import { isRetryable, isTerminal, timeAgo } from '../util';
 import { CopyId } from '../components/CopyId';
 import { PriorityBadge } from '../components/PriorityBadge';
 import { Pagination, SortSelect } from '../components/Pagination';
+import { ChangesNote } from '../components/Freshness';
 
 const STATUSES = [
   '',
@@ -33,7 +34,7 @@ export default function Jobs() {
   const navigate = useNavigate();
   const { readOnly, showPayload } = useSettings();
   const { data: activeRuns } = useActiveRuns();
-  const { data, isLoading, error } = useJobs({
+  const { data, isLoading, error, dataUpdatedAt, refetch } = useJobs({
     status: filter || undefined,
     task_type: taskType || undefined,
     tag: tag || undefined,
@@ -109,6 +110,7 @@ export default function Jobs() {
         />
         <SortSelect value={sortOrder} onChange={(v) => { setSortOrder(v); setOffset(0); }} />
       </div>
+      {offset === 0 && <ChangesNote kind="jobs" since={dataUpdatedAt} onRefresh={refetch} />}
 
       {/* Bulk actions toolbar */}
       {!readOnly && hasSelection && (

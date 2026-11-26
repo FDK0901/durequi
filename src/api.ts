@@ -85,6 +85,8 @@ export interface NodeInfo {
   pool_stats?: PoolStats;
   active_run_ids?: string[];
   handler_versions?: Record<string, string>;
+  /** Not on servers up to v0.3.1. */
+  draining?: boolean;
 }
 
 export interface PoolStats {
@@ -142,6 +144,16 @@ export interface JobEvent {
   timestamp: string;
   affected_run_ids?: string[];
   workflow_id?: string;
+  batch_progress?: BatchProgress;
+}
+
+export interface BatchProgress {
+  batch_id: string;
+  /** Items that have ended, failed ones among them. */
+  done: number;
+  total: number;
+  failed: number;
+  step?: string;
 }
 
 export interface DLQMessage {
@@ -325,8 +337,8 @@ async function request(path: string, init?: RequestInit): Promise<Response> {
   throw new ApiError(res.status, message);
 }
 
-async function fetchJSON<T>(path: string): Promise<T> {
-  return (await request(path)).json();
+async function fetchJSON<T>(path: string, signal?: AbortSignal): Promise<T> {
+  return (await request(path, { signal })).json();
 }
 
 async function postAction(path: string): Promise<void> {
@@ -383,11 +395,20 @@ export interface HistoryRunParams {
   until?: string;
 }
 
+export interface EventPage {
+  data: JobEvent[] | null;
+  /** Not if it was not asked for, and the server does not count then. */
+  total?: number;
+  has_more?: boolean;
+}
+
 export interface EventParams {
   limit?: number;
   offset?: number;
   /** A job, or what a workflow.* or batch.* event has in its place. */
   job_id?: string;
+  /** Counting the events of one ID takes looking at all of them. */
+  total?: boolean;
 }
 
 export interface JobSearchParams {
@@ -495,16 +516,22 @@ export interface RedisInfoResponse {
 
 export const api = {
   getStats: () => fetchJSON<Stats>('/api/stats'),
-  listJobs: (params: JobListParams = {}) =>
-    fetchJSON<Paginated<Job>>(`/api/jobs?${buildQS(params)}`),
+  listJobs: (params: JobListParams = {}, signal?: AbortSignal) =>
+    fetchJSON<Paginated<Job>>(`/api/jobs?${buildQS(params)}`, signal),
   getJob: (id: string) => fetchJSON<Job>(`/api/jobs/${id}`),
+  /** Those that exist. Not on servers up to v0.3.1. */
+  getJobsByIDs: async (ids: string[]) =>
+    (await postJSON<{ data: Job[] | null }>('/api/jobs/by-ids', { ids })).data ?? [],
+  /** The last runs by job. Not on servers up to v0.3.1. */
+  listRunsOfJobs: async (jobIds: string[], limit: number) =>
+    (await postJSON<{ data: Record<string, JobRun[]> | null }>('/api/runs/by-jobs', { job_ids: jobIds, limit })).data ?? {},
   deleteJob: (id: string) => deleteAction(`/api/jobs/${id}`),
   listNodes: () => fetchJSON<NodeInfo[] | null>('/api/nodes'),
   listActiveRuns: () => fetchJSON<JobRun[] | null>('/api/runs'),
-  listSchedules: (params: ListParams = {}) =>
-    fetchJSON<Paginated<ScheduleEntry>>(`/api/schedules?${buildQS(params)}`),
-  listDLQ: (params: ListParams = {}) =>
-    fetchJSON<Paginated<DLQMessage>>(`/api/dlq?${buildQS(params)}`),
+  listSchedules: (params: ListParams = {}, signal?: AbortSignal) =>
+    fetchJSON<Paginated<ScheduleEntry>>(`/api/schedules?${buildQS(params)}`, signal),
+  listDLQ: (params: ListParams = {}, signal?: AbortSignal) =>
+    fetchJSON<Paginated<DLQMessage>>(`/api/dlq?${buildQS(params)}`, signal),
   cancelJob: (id: string) => postAction(`/api/jobs/${id}/cancel`),
   retryJob: (id: string) => postAction(`/api/jobs/${id}/retry`),
   resumeJob: (id: string) => postAction(`/api/jobs/${id}/resume`),
@@ -515,20 +542,20 @@ export const api = {
   // History
   listJobRuns: (jobId: string, limit = 50) =>
     fetchJSON<JobRun[] | null>(`/api/jobs/${jobId}/runs?limit=${limit}`),
-  listHistoryRuns: (params: HistoryRunParams = {}) =>
-    fetchJSON<Paginated<JobRun>>(`/api/history/runs?${buildQS(params)}`),
+  listHistoryRuns: (params: HistoryRunParams = {}, signal?: AbortSignal) =>
+    fetchJSON<Paginated<JobRun>>(`/api/history/runs?${buildQS(params)}`, signal),
   /** A run, active or finished. */
   getRun: (id: string) => fetchJSON<JobRun>(`/api/runs/${encodeURIComponent(id)}`),
   cleanupRunHistory: (days: number) =>
     deleteJSON<{ removed: number }>(`/api/history/runs?older_than=${days * 24}h`),
   listHistoryEvents: (params: EventParams = {}) =>
-    fetchJSON<Paginated<JobEvent>>(`/api/history/events?${buildQS(params)}`),
+    fetchJSON<EventPage>(`/api/history/events?${buildQS(params)}`),
   listJobEvents: (jobId: string, limit = 50) =>
     fetchJSON<JobEvent[] | null>(`/api/jobs/${jobId}/events?limit=${limit}`),
 
   // Workflows
-  listWorkflows: (params: ListParams = {}) =>
-    fetchJSON<Paginated<WorkflowInstance>>(`/api/workflows?${buildQS(params)}`),
+  listWorkflows: (params: ListParams = {}, signal?: AbortSignal) =>
+    fetchJSON<Paginated<WorkflowInstance>>(`/api/workflows?${buildQS({ ...params, view: 'summary' })}`, signal),
   getWorkflow: (id: string) => fetchJSON<WorkflowInstance>(`/api/workflows/${id}`),
   cancelWorkflow: (id: string) => postAction(`/api/workflows/${id}/cancel`),
   retryWorkflow: (id: string) => postAction(`/api/workflows/${id}/retry`),
@@ -540,8 +567,8 @@ export const api = {
     postJSON<{ valid: boolean; errors?: string[] }>('/api/workflows/validate', def),
 
   // Batches
-  listBatches: (params: ListParams = {}) =>
-    fetchJSON<Paginated<BatchInstance>>(`/api/batches?${buildQS(params)}`),
+  listBatches: (params: ListParams = {}, signal?: AbortSignal) =>
+    fetchJSON<Paginated<BatchInstance>>(`/api/batches?${buildQS({ ...params, view: 'summary' })}`, signal),
   getBatch: (id: string) => fetchJSON<BatchInstance>(`/api/batches/${id}`),
   getBatchResults: (id: string) => fetchJSON<BatchItemResult[]>(`/api/batches/${id}/results`),
   getBatchItemResult: (id: string, itemId: string) =>

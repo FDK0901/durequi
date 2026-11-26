@@ -2,6 +2,8 @@ interface PaginationProps {
   offset: number;
   limit: number;
   total: number;
+  /** The total is not known, but that there is more than that. */
+  more?: boolean;
   onOffsetChange: (offset: number) => void;
 }
 
@@ -25,7 +27,7 @@ function getPageRange(page: number, totalPages: number): number[] {
   return Array.from({ length: end - start + 1 }, (_, i) => start + i);
 }
 
-export function Pagination({ offset, limit, total, onOffsetChange }: PaginationProps) {
+export function Pagination({ offset, limit, total, more, onOffsetChange }: PaginationProps) {
   const page = Math.floor(offset / limit) + 1;
   const totalPages = Math.max(1, Math.ceil(total / limit));
   const hasPrev = offset > 0;
@@ -70,7 +72,7 @@ export function Pagination({ offset, limit, total, onOffsetChange }: PaginationP
         Next
       </button>
 
-      <span className="pagination-info">({total} total)</span>
+      <span className="pagination-info">({more ? `more than ${total - 1}` : total} total)</span>
     </div>
   );
 }

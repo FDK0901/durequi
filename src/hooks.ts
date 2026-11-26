@@ -1,12 +1,13 @@
 import { useQuery, useQueries, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
-import { api, type ListParams, type JobListParams, type HistoryRunParams, type EventParams, type JobSearchParams } from './api';
+import { loadJob, loadJobRuns } from './loaders';
+import { api, type ListParams, type NodeInfo, type JobListParams, type HistoryRunParams, type EventParams, type JobSearchParams } from './api';
 
 import { useWebSocketStatus } from './context/useWebsocketStatus';
 import { useSettings } from './context/useSettings';
 
 // How each kind of data is kept up to date:
 //
-//   events (see context/WebsocketProvider.tsx), and slowly, as events get lost: jobs, runs, workflows,
+//   events (see context/applyEvents.ts), and slowly, as events get lost: jobs, runs, workflows,
 //     batches, audit trails, the DLQ, daily stats
 //   regularly, as it changes without an event: stats, nodes, queues, active runs, schedules,
 //     progress, groups, signals, sync retries
@@ -41,7 +42,7 @@ export function useJobs(params: JobListParams = {}) {
   const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: ['jobs', params],
-    queryFn: () => api.listJobs(params),
+    queryFn: ({ signal }) => api.listJobs(params, signal),
     refetchInterval,
     placeholderData: keepPreviousData,
   });
@@ -53,7 +54,7 @@ export function useJobsById(ids: string[]) {
   return useQueries({
     queries: ids.map((id) => ({
       queryKey: ['job', id],
-      queryFn: () => api.getJob(id),
+      queryFn: () => loadJob(id),
       refetchInterval,
       retry: false,
     })),
@@ -65,7 +66,7 @@ export function useJob(id: string) {
   const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: ['job', id],
-    queryFn: () => api.getJob(id),
+    queryFn: () => loadJob(id),
     refetchInterval,
   });
 }
@@ -74,7 +75,7 @@ export function useJobRuns(jobId: string, limit = 50) {
   const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: ['jobRuns', jobId, limit],
-    queryFn: () => api.listJobRuns(jobId, limit),
+    queryFn: () => loadJobRuns(jobId, limit),
     refetchInterval,
   });
 }
@@ -85,7 +86,7 @@ export function useRunsOfJobs(ids: string[], limit = 100) {
   return useQueries({
     queries: ids.map((id) => ({
       queryKey: ['jobRuns', id, limit],
-      queryFn: () => api.listJobRuns(id, limit),
+      queryFn: () => loadJobRuns(id, limit),
       refetchInterval,
     })),
     combine: (results) => new Map(results.map((res, i) => [ids[i], res.data ?? []])),
@@ -114,7 +115,7 @@ export function useSchedules(params: ListParams = {}) {
   const refetchInterval = usePollInterval();
   return useQuery({
     queryKey: ['schedules', params],
-    queryFn: () => api.listSchedules(params),
+    queryFn: ({ signal }) => api.listSchedules(params, signal),
     refetchInterval,
     placeholderData: keepPreviousData,
   });
@@ -124,7 +125,7 @@ export function useDLQ(params: ListParams = {}) {
   const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: ['dlq', params],
-    queryFn: () => api.listDLQ(params),
+    queryFn: ({ signal }) => api.listDLQ(params, signal),
     refetchInterval,
     placeholderData: keepPreviousData,
   });
@@ -134,7 +135,7 @@ export function useWorkflows(params: ListParams = {}) {
   const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: ['workflows', params],
-    queryFn: () => api.listWorkflows(params),
+    queryFn: ({ signal }) => api.listWorkflows(params, signal),
     refetchInterval,
     placeholderData: keepPreviousData,
   });
@@ -153,7 +154,7 @@ export function useHistoryRuns(params: HistoryRunParams = {}) {
   const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: ['historyRuns', params],
-    queryFn: () => api.listHistoryRuns(params),
+    queryFn: ({ signal }) => api.listHistoryRuns(params, signal),
     refetchInterval,
     placeholderData: keepPreviousData,
   });
@@ -199,7 +200,7 @@ export function useRecentEvents(limit: number) {
 export function useHistoryEvents(params: EventParams = {}) {
   return useQuery({
     queryKey: ['historyEvents', params],
-    queryFn: () => api.listHistoryEvents(params),
+    queryFn: () => api.listHistoryEvents(params.job_id ? { ...params, total: false } : params),
     placeholderData: keepPreviousData,
   });
 }
@@ -340,7 +341,7 @@ export function useBatches(params: ListParams = {}) {
   const refetchInterval = useRefetchInterval();
   return useQuery({
     queryKey: ['batches', params],
-    queryFn: () => api.listBatches(params),
+    queryFn: ({ signal }) => api.listBatches(params, signal),
     refetchInterval,
     placeholderData: keepPreviousData,
   });
@@ -640,24 +641,30 @@ export function useJobProgress(jobId: string) {
 
 // --- Node Drain ---
 
-/** The IDs of the nodes, out of those given, that are draining. */
-export function useDrainingNodes(nodeIds: string[]) {
+/** The IDs of the nodes that are draining. Servers up to v0.3.1 are asked node by node. */
+export function useDrainingNodes(nodes: NodeInfo[]) {
   const refetchInterval = usePollInterval();
-  return useQueries({
-    queries: nodeIds.map((id) => ({
-      queryKey: ['nodeDrain', id],
-      queryFn: () => api.getNodeDrainStatus(id),
-      refetchInterval,
-    })),
-    combine: (results) => new Set(results.flatMap((res) => (res.data?.draining ? [res.data.node_id] : []))),
+  const asked = useQueries({
+    queries: nodes
+      .filter((n) => n.draining === undefined)
+      .map(({ node_id: id }) => ({
+        queryKey: ['nodeDrain', id],
+        queryFn: () => api.getNodeDrainStatus(id),
+        refetchInterval,
+      })),
+    combine: (results) => results.flatMap((res) => (res.data?.draining ? [res.data.node_id] : [])),
   });
+  return new Set([...nodes.filter((n) => n.draining).map((n) => n.node_id), ...asked]);
 }
 
 export function useDrainNode() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (nodeId: string) => api.drainNode(nodeId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['nodeDrain'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['nodes'] });
+      qc.invalidateQueries({ queryKey: ['nodeDrain'] });
+    },
     meta: { done: 'Node is draining' },
   });
 }
@@ -666,7 +673,10 @@ export function useUndrainNode() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (nodeId: string) => api.undrainNode(nodeId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['nodeDrain'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['nodes'] });
+      qc.invalidateQueries({ queryKey: ['nodeDrain'] });
+    },
     meta: { done: 'Node takes work again' },
   });
 }

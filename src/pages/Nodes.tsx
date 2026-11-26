@@ -61,7 +61,7 @@ export default function Nodes() {
   const { data: nodes, isLoading, error } = useNodes();
   const { readOnly } = useSettings();
   const { data: activeRuns } = useActiveRuns();
-  const draining = useDrainingNodes(nodes?.map((n) => n.node_id) ?? []);
+  const draining = useDrainingNodes(nodes ?? []);
   const drainMut = useDrainNode();
   const undrainMut = useUndrainNode();
 
